@@ -1,4 +1,3 @@
-```php
 <?php
 
 session_start();
@@ -12,83 +11,38 @@ require_once "../config/conexion.php";
 
 date_default_timezone_set('America/Bogota');
 
-/* =========================================================
-   USUARIO DOCENTE
-========================================================= */
-
 $idUsuario = (int) $_SESSION['id_usuario'];
-
 $nombreUsuario = $_SESSION['nombre'] ?? 'Docente';
-
-$partesNombre = preg_split('/\s+/', trim($nombreUsuario));
-
-$iniciales = '';
-
-foreach (array_slice($partesNombre, 0, 2) as $parte) {
-    $iniciales .= strtoupper(substr($parte, 0, 1));
-}
-
-if ($iniciales === '') {
-    $iniciales = 'DO';
-}
-
-$horaActual = date('H:i:s');
-$fechaActual = date('d/m/Y');
-$fechaHoy = date('Y-m-d');
-
-
-/* =========================================================
-   CREAR SESIÓN
-   IMPORTANTE:
-   - El docente crea la sesión.
-   - NO se genera ningún QR aquí.
-========================================================= */
 
 $mensaje = '';
 $tipoMensaje = '';
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+/* =========================================================
+   CREAR SESIÓN
+========================================================= */
 
-    $accion = $_POST['accion'] ?? '';
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion'])) {
 
-    /* -----------------------------------------------------
-       CREAR NUEVA SESIÓN
-    ----------------------------------------------------- */
+    if ($_POST['accion'] === 'crear_sesion') {
 
-    if ($accion === 'crear_sesion') {
+        $idCurso = (int) ($_POST['id_curso'] ?? 0);
 
-        $idCurso = isset($_POST['id_curso'])
-            ? (int) $_POST['id_curso']
-            : 0;
+        if ($idCurso <= 0) {
 
-        $horaInicio = $_POST['hora_inicio'] ?? '';
-
-        if ($idCurso <= 0 || empty($horaInicio)) {
-
-            $mensaje = 'Debes seleccionar un curso y una hora.';
+            $mensaje = 'Selecciona un curso válido.';
             $tipoMensaje = 'error';
 
         } else {
 
-            /* ---------------------------------------------
-               Verificar que el curso pertenece al docente.
-
-               AQUÍ usamos docente_curso.id_usuario,
-               NO id_docente.
-            --------------------------------------------- */
-
-            $sqlVerificarCurso = "
-                SELECT id_docente_curso
+            $sqlVerificar = "
+                SELECT id_curso
                 FROM docente_curso
                 WHERE id_usuario = ?
                 AND id_curso = ?
                 LIMIT 1
             ";
 
-            $stmtVerificar = mysqli_prepare(
-                $conexion,
-                $sqlVerificarCurso
-            );
+            $stmtVerificar = mysqli_prepare($conexion, $sqlVerificar);
 
             if ($stmtVerificar) {
 
@@ -101,33 +55,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 mysqli_stmt_execute($stmtVerificar);
 
-                $resultadoVerificar =
-                    mysqli_stmt_get_result($stmtVerificar);
-
-                $cursoPermitido =
-                    mysqli_num_rows($resultadoVerificar) > 0;
+                $resultadoVerificar = mysqli_stmt_get_result($stmtVerificar);
+                $cursoPermitido = mysqli_fetch_assoc($resultadoVerificar);
 
                 mysqli_stmt_close($stmtVerificar);
 
                 if (!$cursoPermitido) {
 
-                    $mensaje =
-                        'No tienes asignado este curso.';
-
+                    $mensaje = 'No tienes permiso para utilizar este curso.';
                     $tipoMensaje = 'error';
 
                 } else {
 
-                    /* -------------------------------------
-                       Crear sesión.
-
-                       sesiones_clase SÍ usa id_docente,
-                       porque esa columna existe en esa tabla.
-                    ------------------------------------- */
-
-                    $horaCompleta =
-                        $fechaHoy . ' ' . $horaInicio . ':00';
-
+                    $fecha = date('Y-m-d');
+                    $horaInicio = date('Y-m-d H:i:s');
                     $estado = 'ABIERTA';
 
                     $sqlCrear = "
@@ -139,13 +80,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             hora_inicio,
                             estado
                         )
-                        VALUES (?, ?, ?, ?, ?)
+                        VALUES
+                        (
+                            ?,
+                            ?,
+                            ?,
+                            ?,
+                            ?
+                        )
                     ";
 
-                    $stmtCrear = mysqli_prepare(
-                        $conexion,
-                        $sqlCrear
-                    );
+                    $stmtCrear = mysqli_prepare($conexion, $sqlCrear);
 
                     if ($stmtCrear) {
 
@@ -154,39 +99,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             "iisss",
                             $idUsuario,
                             $idCurso,
-                            $fechaHoy,
-                            $horaCompleta,
+                            $fecha,
+                            $horaInicio,
                             $estado
                         );
 
                         if (mysqli_stmt_execute($stmtCrear)) {
 
-                            $idNuevaSesion =
-                                mysqli_insert_id($conexion);
+                            $idNuevaSesion = mysqli_insert_id($conexion);
 
                             mysqli_stmt_close($stmtCrear);
 
-                            /*
-                             * IMPORTANTE:
-                             * NO GENERAMOS QR.
-                             *
-                             * El QR pertenece al estudiante.
-                             * La sesión solamente queda ABIERTA.
-                             */
-
                             header(
-                                "Location: asistencia.php?sesion="
-                                . $idNuevaSesion
+                                "Location: asistencia.php?sesion=" .
+                                $idNuevaSesion
                             );
 
                             exit();
 
                         } else {
 
-                            $mensaje =
-                                'No fue posible crear la sesión: '
-                                . mysqli_error($conexion);
-
+                            $mensaje = 'No fue posible crear la sesión.';
                             $tipoMensaje = 'error';
 
                             mysqli_stmt_close($stmtCrear);
@@ -194,40 +127,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                     } else {
 
-                        $mensaje =
-                            'No fue posible preparar la creación de la sesión.';
-
+                        $mensaje = 'No fue posible preparar la sesión.';
                         $tipoMensaje = 'error';
                     }
                 }
 
             } else {
 
-                $mensaje =
-                    'No fue posible verificar el curso.';
-
+                $mensaje = 'No fue posible verificar el curso.';
                 $tipoMensaje = 'error';
             }
         }
     }
 
 
-    /* -----------------------------------------------------
+    /* =====================================================
        CERRAR SESIÓN
-    ----------------------------------------------------- */
+    ===================================================== */
 
-    if ($accion === 'cerrar_sesion') {
+    if ($_POST['accion'] === 'cerrar_sesion') {
 
-        $idSesionCerrar = isset($_POST['id_sesion'])
-            ? (int) $_POST['id_sesion']
-            : 0;
+        $idSesionCerrar = (int) ($_POST['id_sesion'] ?? 0);
 
         if ($idSesionCerrar > 0) {
-
-            /*
-             * Verificamos que la sesión realmente
-             * pertenezca al docente.
-             */
 
             $sqlCerrar = "
                 UPDATE sesiones_clase
@@ -253,29 +175,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 mysqli_stmt_execute($stmtCerrar);
 
                 mysqli_stmt_close($stmtCerrar);
+
+                header(
+                    "Location: asistencia.php?sesion=" .
+                    $idSesionCerrar
+                );
+
+                exit();
             }
-
-            header(
-                "Location: asistencia.php?sesion="
-                . $idSesionCerrar
-            );
-
-            exit();
         }
     }
 }
 
 
 /* =========================================================
-   CURSOS DEL DOCENTE
-   AQUÍ ESTÁ LA CORRECCIÓN PRINCIPAL.
-
-   docente_curso:
-       id_usuario
-       id_curso
-
-   NO:
-       id_docente
+   CARGAR CURSOS DEL DOCENTE
 ========================================================= */
 
 $cursos = [];
@@ -291,10 +205,7 @@ $sqlCursos = "
     ORDER BY c.nombre_curso ASC
 ";
 
-$stmtCursos = mysqli_prepare(
-    $conexion,
-    $sqlCursos
-);
+$stmtCursos = mysqli_prepare($conexion, $sqlCursos);
 
 if ($stmtCursos) {
 
@@ -306,8 +217,7 @@ if ($stmtCursos) {
 
     mysqli_stmt_execute($stmtCursos);
 
-    $resultadoCursos =
-        mysqli_stmt_get_result($stmtCursos);
+    $resultadoCursos = mysqli_stmt_get_result($stmtCursos);
 
     while ($fila = mysqli_fetch_assoc($resultadoCursos)) {
         $cursos[] = $fila;
@@ -318,7 +228,7 @@ if ($stmtCursos) {
 
 
 /* =========================================================
-   SESIONES DEL DOCENTE
+   CARGAR SESIONES DEL DOCENTE
 ========================================================= */
 
 $sesiones = [];
@@ -326,7 +236,6 @@ $sesiones = [];
 $sqlSesiones = "
     SELECT
         s.id_sesion,
-        s.id_docente,
         s.id_curso,
         s.fecha,
         s.hora_inicio,
@@ -356,8 +265,9 @@ if ($stmtSesiones) {
 
     mysqli_stmt_execute($stmtSesiones);
 
-    $resultadoSesiones =
-        mysqli_stmt_get_result($stmtSesiones);
+    $resultadoSesiones = mysqli_stmt_get_result(
+        $stmtSesiones
+    );
 
     while ($fila = mysqli_fetch_assoc($resultadoSesiones)) {
         $sesiones[] = $fila;
@@ -371,28 +281,41 @@ if ($stmtSesiones) {
    SESIÓN SELECCIONADA
 ========================================================= */
 
-$idSesionSeleccionada = 0;
+$idSesionSeleccionada = (int) (
+    $_GET['sesion'] ?? 0
+);
 
-if (isset($_GET['sesion'])) {
+$sesionActual = null;
 
-    $idSesionSeleccionada =
-        (int) $_GET['sesion'];
+
+/* Si viene una sesión por URL */
+if ($idSesionSeleccionada > 0) {
+
+    foreach ($sesiones as $sesion) {
+
+        if (
+            (int)$sesion['id_sesion']
+            === $idSesionSeleccionada
+        ) {
+
+            $sesionActual = $sesion;
+            break;
+        }
+    }
 }
 
 
-/* =========================================================
-   SI NO HAY SESIÓN SELECCIONADA,
-   BUSCAR UNA ABIERTA DEL DOCENTE
-========================================================= */
-
-if ($idSesionSeleccionada <= 0) {
+/* Si no viene ninguna, buscar una abierta */
+if (!$sesionActual) {
 
     foreach ($sesiones as $sesion) {
 
         if ($sesion['estado'] === 'ABIERTA') {
 
+            $sesionActual = $sesion;
+
             $idSesionSeleccionada =
-                (int) $sesion['id_sesion'];
+                (int)$sesion['id_sesion'];
 
             break;
         }
@@ -401,40 +324,17 @@ if ($idSesionSeleccionada <= 0) {
 
 
 /* =========================================================
-   DATOS DE LA SESIÓN
-========================================================= */
-
-$sesionActual = null;
-
-foreach ($sesiones as $sesion) {
-
-    if (
-        (int) $sesion['id_sesion']
-        === $idSesionSeleccionada
-    ) {
-
-        $sesionActual = $sesion;
-
-        break;
-    }
-}
-
-
-/* =========================================================
-   ASISTENCIAS
-
-   IMPORTANTE:
-   Aquí SOLO usamos id_sesion.
-
-   NO buscamos id_docente dentro de asistencia_clase
-   porque esa tabla NO tiene esa columna.
+   CARGAR ASISTENCIAS
 ========================================================= */
 
 $asistencias = [];
 
+$totalPresentes = 0;
+$totalExcusas = 0;
+
 if ($sesionActual) {
 
-    $sqlAsistencias = "
+    $sqlAsistencia = "
         SELECT
             a.id_asistencia,
             a.id_sesion,
@@ -452,2823 +352,1784 @@ if ($sesionActual) {
         ORDER BY a.hora_registro DESC
     ";
 
-    $stmtAsistencias = mysqli_prepare(
+    $stmtAsistencia = mysqli_prepare(
         $conexion,
-        $sqlAsistencias
+        $sqlAsistencia
     );
 
-    if ($stmtAsistencias) {
+    if ($stmtAsistencia) {
 
         mysqli_stmt_bind_param(
-            $stmtAsistencias,
+            $stmtAsistencia,
             "i",
             $idSesionSeleccionada
         );
 
-        mysqli_stmt_execute(
-            $stmtAsistencias
-        );
+        mysqli_stmt_execute($stmtAsistencia);
 
-        $resultadoAsistencias =
+        $resultadoAsistencia =
             mysqli_stmt_get_result(
-                $stmtAsistencias
+                $stmtAsistencia
             );
 
         while (
             $fila =
-            mysqli_fetch_assoc(
-                $resultadoAsistencias
-            )
+            mysqli_fetch_assoc($resultadoAsistencia)
         ) {
 
             $asistencias[] = $fila;
+
+            if ($fila['estado'] === 'PRESENTE') {
+                $totalPresentes++;
+            }
+
+            if (
+                !empty($fila['estado_excusa'])
+            ) {
+                $totalExcusas++;
+            }
         }
 
-        mysqli_stmt_close(
-            $stmtAsistencias
-        );
+        mysqli_stmt_close($stmtAsistencia);
     }
 }
-
-
-/* =========================================================
-   CONTADORES
-========================================================= */
-
-$totalPresentes = 0;
-$totalExcusas = 0;
-
-foreach ($asistencias as $asistencia) {
-
-    if (
-        strtoupper(
-            $asistencia['estado']
-        ) === 'PRESENTE'
-    ) {
-
-        $totalPresentes++;
-    }
-
-    if (
-        !empty(
-            $asistencia['estado_excusa']
-        )
-    ) {
-
-        $totalExcusas++;
-    }
-}
-
-$totalRegistrados =
-    count($asistencias);
 
 ?>
-
 <!DOCTYPE html>
-
 <html lang="es">
 
 <head>
 
-<meta charset="UTF-8">
-
-<meta
-    name="viewport"
-    content="width=device-width, initial-scale=1.0"
->
-
-<title>
-    Asistencia QR | Control de asistencia
-</title>
-
-<link
-    rel="stylesheet"
-    href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css"
->
-
-<style>
-
-:root{
-
-    --aqua:#18d8ce;
-    --aqua-dark:#087d92;
-
-    --blue:#69b8d5;
-
-    --mint:#42cda1;
-
-    --purple:#8579d2;
-
-    --coral:#e99a78;
-
-    --text:#3e6f7d;
-
-    --dark:#20596d;
-
-    --muted:#7897a0;
-
-}
-
-*{
-    margin:0;
-    padding:0;
-    box-sizing:border-box;
-}
-
-body{
-
-    min-height:100vh;
-
-    overflow-x:hidden;
-
-    font-family:
-        "Segoe UI",
-        Arial,
-        sans-serif;
-
-    color:var(--text);
-
-    background:
-
-        radial-gradient(
-            circle at 5% 10%,
-            rgba(24,216,206,.13),
-            transparent 27%
-        ),
-
-        radial-gradient(
-            circle at 96% 88%,
-            rgba(133,121,210,.13),
-            transparent 30%
-        ),
-
-        linear-gradient(
-            135deg,
-            #e8faf7 0%,
-            #f8fdfc 48%,
-            #eaf6fb 100%
-        );
-}
-
-
-/* =========================================================
-   APP
-========================================================= */
-
-.app{
-
-    display:flex;
-
-    gap:18px;
-
-    min-height:100vh;
-
-    padding:18px;
-}
-
-
-/* =========================================================
-   SIDEBAR
-========================================================= */
-
-.sidebar{
-
-    width:285px;
-
-    flex-shrink:0;
-
-    min-height:
-        calc(100vh - 36px);
-
-    display:flex;
-
-    flex-direction:column;
-
-    padding:
-        22px 16px 16px;
-
-    border:
-        1px solid
-        rgba(255,255,255,.94);
-
-    border-radius:29px;
-
-    background:
-        linear-gradient(
-            145deg,
-            rgba(255,255,255,.87),
-            rgba(232,250,247,.68)
-        );
-
-    backdrop-filter:blur(25px);
-
-    box-shadow:
-        0 25px 65px
-        rgba(55,113,129,.10);
-}
-
-.sidebar-header{
-
-    display:flex;
-
-    align-items:center;
-
-    gap:13px;
-
-    padding:
-        3px 9px 20px;
-}
-
-.logo-container{
-
-    width:64px;
-    height:64px;
-
-    display:flex;
-
-    align-items:center;
-    justify-content:center;
-
-    padding:7px;
-
-    flex-shrink:0;
-
-    border-radius:19px;
-
-    background:
-        rgba(255,255,255,.76);
-
-    border:
-        1px solid
-        rgba(255,255,255,.95);
-
-    box-shadow:
-        0 12px 30px
-        rgba(55,113,129,.10);
-}
-
-.logo-container img{
-
-    width:100%;
-    height:100%;
-
-    object-fit:contain;
-}
-
-.sidebar-title strong{
-
-    display:block;
-
-    color:#075273;
-
-    font-size:19px;
-
-    font-weight:950;
-}
-
-.sidebar-title small{
-
-    display:block;
-
-    margin-top:6px;
-
-    color:#7898a1;
-
-    font-size:11px;
-
-    font-weight:750;
-}
-
-.sidebar-line{
-
-    position:relative;
-
-    height:1px;
-
-    margin:
-        0 9px 16px;
-
-    background:
-        rgba(50,111,130,.09);
-}
-
-.sidebar-line span{
-
-    position:absolute;
-
-    left:0;
-    top:-1px;
-
-    width:55px;
-    height:2px;
-
-    border-radius:5px;
-
-    background:
-        linear-gradient(
-            90deg,
-            var(--aqua),
-            transparent
-        );
-}
-
-.navigation{
-    flex:1;
-}
-
-.menu-section{
-    margin-bottom:12px;
-}
-
-.menu-label{
-
-    display:flex;
-
-    align-items:center;
-
-    gap:8px;
-
-    min-height:30px;
-
-    padding:
-        0 11px;
-
-    color:#7d9aa3;
-
-    font-size:11px;
-
-    font-weight:950;
-
-    letter-spacing:1.35px;
-}
-
-.label-line{
-
-    width:17px;
-    height:2px;
-
-    border-radius:4px;
-
-    background:#b9d7db;
-}
-
-.nav-link{
-
-    position:relative;
-
-    display:flex;
-
-    align-items:center;
-
-    gap:11px;
-
-    width:100%;
-
-    min-height:55px;
-
-    margin-bottom:4px;
-
-    padding:
-        6px 10px;
-
-    border-radius:15px;
-
-    color:#557f8b;
-
-    text-decoration:none;
-
-    font-size:14px;
-
-    font-weight:850;
-
-    transition:.25s;
-}
-
-.nav-link:hover{
-
-    color:#075273;
-
-    background:
-        rgba(255,255,255,.74);
-
-    transform:
-        translateX(4px);
-}
-
-.nav-link.active{
-
-    color:#08758a;
-
-    background:
-        linear-gradient(
-            100deg,
-            rgba(24,216,206,.17),
-            rgba(255,255,255,.70)
-        );
-}
-
-.nav-link.active::before{
-
-    content:"";
-
-    position:absolute;
-
-    left:0;
-
-    top:8px;
-    bottom:8px;
-
-    width:4px;
-
-    border-radius:
-        0 7px 7px 0;
-
-    background:
-        linear-gradient(
-            180deg,
-            var(--aqua),
-            var(--blue)
-        );
-}
-
-.nav-icon{
-
-    width:40px;
-    height:40px;
-
-    display:flex;
-
-    align-items:center;
-    justify-content:center;
-
-    flex-shrink:0;
-
-    border-radius:12px;
-
-    color:#4b98a8;
-
-    background:
-        rgba(24,216,206,.075);
-
-    font-size:19px;
-}
-
-.nav-icon.academic{
-
-    color:#766cc8;
-
-    background:
-        rgba(133,121,210,.10);
-}
-
-.nav-icon.qr-icon{
-
-    color:#078395;
-
-    background:
-        rgba(24,216,206,.12);
-}
-
-.nav-icon.reports{
-
-    color:#bd8a40;
-
-    background:
-        rgba(209,161,88,.12);
-}
-
-
-/* =========================================================
-   PERFIL
-========================================================= */
-
-.sidebar-bottom{
-
-    margin-top:auto;
-
-    padding-top:10px;
-}
-
-.profile-card{
-
-    display:flex;
-
-    align-items:center;
-
-    gap:10px;
-
-    padding:
-        10px 11px;
-
-    border-radius:15px;
-
-    background:
-        rgba(255,255,255,.54);
-
-    border:
-        1px solid
-        rgba(255,255,255,.85);
-}
-
-.profile-avatar{
-
-    width:42px;
-    height:42px;
-
-    display:flex;
-
-    align-items:center;
-    justify-content:center;
-
-    flex-shrink:0;
-
-    border-radius:12px;
-
-    color:#fff;
-
-    background:
-        linear-gradient(
-            145deg,
-            #52dca9,
-            #15966f
-        );
-
-    font-size:14px;
-
-    font-weight:950;
-}
-
-.profile-info{
-
-    flex:1;
-
-    min-width:0;
-}
-
-.profile-info strong{
-
-    display:block;
-
-    overflow:hidden;
-
-    color:#4d7c89;
-
-    font-size:13px;
-
-    font-weight:900;
-
-    white-space:nowrap;
-
-    text-overflow:ellipsis;
-}
-
-.profile-info small{
-
-    display:block;
-
-    margin-top:3px;
-
-    color:#8ca6ad;
-
-    font-size:10px;
-}
-
-.profile-status{
-
-    color:#27b884;
-
-    font-size:11px;
-}
-
-.logout{
-
-    display:flex;
-
-    align-items:center;
-
-    gap:9px;
-
-    min-height:48px;
-
-    margin-top:3px;
-
-    padding:
-        0 10px;
-
-    color:#b86e77;
-
-    text-decoration:none;
-
-    font-size:13px;
-
-    font-weight:850;
-}
-
-.logout:hover{
-
-    color:#a4535c;
-
-    background:
-        rgba(242,143,150,.08);
-
-    border-radius:13px;
-}
-
-.logout-icon{
-
-    width:35px;
-    height:35px;
-
-    display:flex;
-
-    align-items:center;
-    justify-content:center;
-
-    border-radius:10px;
-
-    background:
-        rgba(242,143,150,.08);
-}
-
-
-/* =========================================================
-   MAIN
-========================================================= */
-
-.main{
-
-    flex:1;
-
-    min-width:0;
-
-    display:flex;
-
-    flex-direction:column;
-
-    gap:18px;
-}
-
-
-/* =========================================================
-   TOPBAR
-========================================================= */
-
-.topbar{
-
-    min-height:82px;
-
-    display:flex;
-
-    align-items:center;
-
-    justify-content:space-between;
-
-    gap:20px;
-
-    padding:
-        14px 22px;
-
-    border:
-        1px solid
-        rgba(255,255,255,.92);
-
-    border-radius:23px;
-
-    background:
-        rgba(255,255,255,.68);
-
-    backdrop-filter:blur(20px);
-
-    box-shadow:
-        0 16px 42px
-        rgba(55,113,129,.065);
-}
-
-.page-info{
-
-    display:flex;
-
-    align-items:center;
-
-    gap:13px;
-}
-
-.page-indicator{
-
-    width:9px;
-    height:47px;
-
-    border-radius:7px;
-
-    background:
-        linear-gradient(
-            180deg,
-            var(--aqua),
-            var(--purple)
-        );
-}
-
-.page-title h1{
-
-    color:#15576c;
-
-    font-size:28px;
-
-    font-weight:950;
-}
-
-.page-title p{
-
-    margin-top:5px;
-
-    color:#7898a2;
-
-    font-size:14px;
-
-    font-weight:650;
-}
-
-.clock-box{
-
-    display:flex;
-
-    align-items:center;
-
-    gap:12px;
-
-    padding:
-        10px 15px;
-
-    border-radius:15px;
-
-    background:
-        rgba(255,255,255,.73);
-
-    border:
-        1px solid
-        rgba(255,255,255,.90);
-}
-
-.clock-icon{
-
-    width:38px;
-    height:38px;
-
-    display:flex;
-
-    align-items:center;
-    justify-content:center;
-
-    border-radius:11px;
-
-    color:#0b9f9c;
-
-    background:
-        rgba(24,216,206,.10);
-
-    font-size:18px;
-}
-
-.clock-time{
-
-    color:#155b70;
-
-    font-size:18px;
-
-    font-weight:950;
-}
-
-.clock-date{
-
-    margin-top:2px;
-
-    color:#819ba3;
-
-    font-size:10px;
-
-    font-weight:750;
-}
-
-
-/* =========================================================
-   ALERTAS
-========================================================= */
-
-.alert{
-
-    padding:
-        14px 18px;
-
-    border-radius:15px;
-
-    font-size:13px;
-
-    font-weight:800;
-}
-
-.alert-error{
-
-    color:#a4535c;
-
-    background:
-        rgba(242,143,150,.12);
-
-    border:
-        1px solid
-        rgba(242,143,150,.20);
-}
-
-
-/* =========================================================
-   CREAR SESIÓN
-========================================================= */
-
-.create-card{
-
-    padding:25px;
-
-    border:
-        1px solid
-        rgba(255,255,255,.94);
-
-    border-radius:25px;
-
-    background:
-        rgba(255,255,255,.76);
-
-    box-shadow:
-        0 18px 42px
-        rgba(55,113,129,.065);
-}
-
-.create-header{
-
-    display:flex;
-
-    align-items:center;
-
-    gap:14px;
-
-    margin-bottom:20px;
-}
-
-.create-icon{
-
-    width:48px;
-    height:48px;
-
-    display:flex;
-
-    align-items:center;
-    justify-content:center;
-
-    border-radius:15px;
-
-    color:#087d92;
-
-    background:
-        rgba(24,216,206,.10);
-
-    font-size:22px;
-}
-
-.create-header h2{
-
-    color:#315f70;
-
-    font-size:20px;
-
-    font-weight:950;
-}
-
-.create-header p{
-
-    margin-top:4px;
-
-    color:#819ca4;
-
-    font-size:12px;
-
-    font-weight:650;
-}
-
-.create-form{
-
-    display:grid;
-
-    grid-template-columns:
-        1fr 190px auto;
-
-    gap:12px;
-
-    align-items:end;
-}
-
-.form-group label{
-
-    display:block;
-
-    margin-bottom:7px;
-
-    color:#71929c;
-
-    font-size:11px;
-
-    font-weight:900;
-
-    text-transform:uppercase;
-
-    letter-spacing:.5px;
-}
-
-.form-control{
-
-    width:100%;
-
-    height:48px;
-
-    padding:
-        0 14px;
-
-    border:
-        1px solid
-        #d8eeee;
-
-    border-radius:13px;
-
-    outline:none;
-
-    color:#416f7e;
-
-    background:
-        rgba(248,253,252,.95);
-
-    font-family:inherit;
-
-    font-size:13px;
-
-    font-weight:750;
-}
-
-.form-control:focus{
-
-    border-color:
-        rgba(24,216,206,.55);
-
-    box-shadow:
-        0 0 0 4px
-        rgba(24,216,206,.08);
-}
-
-.btn-create{
-
-    height:48px;
-
-    padding:
-        0 20px;
-
-    border:none;
-
-    border-radius:13px;
-
-    cursor:pointer;
-
-    color:#fff;
-
-    background:
-        linear-gradient(
-            135deg,
-            #18cfc4,
-            #078ba0
-        );
-
-    font-family:inherit;
-
-    font-size:12px;
-
-    font-weight:950;
-
-    box-shadow:
-        0 10px 22px
-        rgba(24,216,206,.20);
-
-    transition:.25s;
-}
-
-.btn-create:hover{
-
-    transform:
-        translateY(-2px);
-}
-
-
-/* =========================================================
-   SESIONES
-========================================================= */
-
-.session-card{
-
-    padding:25px;
-
-    border:
-        1px solid
-        rgba(255,255,255,.94);
-
-    border-radius:25px;
-
-    background:
-        rgba(255,255,255,.76);
-
-    box-shadow:
-        0 18px 42px
-        rgba(55,113,129,.065);
-}
-
-.session-header{
-
-    display:flex;
-
-    align-items:flex-start;
-
-    justify-content:space-between;
-
-    gap:20px;
-
-    margin-bottom:20px;
-}
-
-.session-header h2{
-
-    color:#315f70;
-
-    font-size:20px;
-
-    font-weight:950;
-}
-
-.session-header p{
-
-    margin-top:5px;
-
-    color:#819ca4;
-
-    font-size:12px;
-
-    font-weight:650;
-}
-
-.session-select{
-
-    width:100%;
-
-    padding:
-        13px 15px;
-
-    border:
-        1px solid
-        #d8eeee;
-
-    border-radius:13px;
-
-    outline:none;
-
-    color:#416f7e;
-
-    background:
-        rgba(248,253,252,.95);
-
-    font-family:inherit;
-
-    font-size:13px;
-
-    font-weight:750;
-}
-
-.session-select:focus{
-
-    border-color:
-        rgba(24,216,206,.55);
-
-    box-shadow:
-        0 0 0 4px
-        rgba(24,216,206,.08);
-}
-
-
-/* =========================================================
-   INFO SESIÓN
-========================================================= */
-
-.session-info{
-
-    display:grid;
-
-    grid-template-columns:
-        repeat(4,1fr);
-
-    gap:12px;
-
-    margin-top:18px;
-}
-
-.info-box{
-
-    padding:16px;
-
-    border-radius:17px;
-
-    background:
-        rgba(255,255,255,.74);
-
-    border:
-        1px solid
-        rgba(230,244,244,.9);
-}
-
-.info-box span{
-
-    display:block;
-
-    color:#8aa3aa;
-
-    font-size:10px;
-
-    font-weight:850;
-
-    text-transform:uppercase;
-
-    letter-spacing:.5px;
-}
-
-.info-box strong{
-
-    display:block;
-
-    margin-top:6px;
-
-    color:#426f7d;
-
-    font-size:14px;
-
-    font-weight:950;
-}
-
-.status-open{
-
-    color:#1ba77e !important;
-}
-
-.status-closed{
-
-    color:#b86e77 !important;
-}
-
-
-/* =========================================================
-   CONTROL SESIÓN ABIERTA
-========================================================= */
-
-.session-control{
-
-    display:flex;
-
-    align-items:center;
-
-    justify-content:space-between;
-
-    gap:15px;
-
-    margin-top:18px;
-
-    padding:15px 17px;
-
-    border-radius:16px;
-
-    background:
-        rgba(24,216,206,.055);
-
-    border:
-        1px solid
-        rgba(24,216,206,.10);
-}
-
-.session-control-text{
-
-    display:flex;
-
-    align-items:center;
-
-    gap:10px;
-}
-
-.session-control-text i{
-
-    color:#18bfae;
-
-    font-size:18px;
-}
-
-.session-control-text span{
-
-    color:#507984;
-
-    font-size:12px;
-
-    font-weight:800;
-}
-
-.btn-close-session{
-
-    padding:
-        10px 15px;
-
-    border:none;
-
-    border-radius:10px;
-
-    cursor:pointer;
-
-    color:#a4535c;
-
-    background:
-        rgba(242,143,150,.10);
-
-    font-family:inherit;
-
-    font-size:11px;
-
-    font-weight:950;
-}
-
-.btn-close-session:hover{
-
-    background:
-        rgba(242,143,150,.18);
-}
-
-
-/* =========================================================
-   AVISO QR
-========================================================= */
-
-.qr-info{
-
-    display:flex;
-
-    align-items:center;
-
-    gap:12px;
-
-    margin-top:15px;
-
-    padding:14px 16px;
-
-    border-radius:15px;
-
-    background:
-        rgba(133,121,210,.065);
-
-    border:
-        1px solid
-        rgba(133,121,210,.10);
-}
-
-.qr-info i{
-
-    color:#7569c2;
-
-    font-size:22px;
-}
-
-.qr-info strong{
-
-    display:block;
-
-    color:#5d559e;
-
-    font-size:12px;
-
-    font-weight:950;
-}
-
-.qr-info span{
-
-    display:block;
-
-    margin-top:3px;
-
-    color:#8797a8;
-
-    font-size:11px;
-
-    font-weight:650;
-}
-
-
-/* =========================================================
-   RESUMEN
-========================================================= */
-
-.summary-grid{
-
-    display:grid;
-
-    grid-template-columns:
-        repeat(3,1fr);
-
-    gap:16px;
-}
-
-.summary-item{
-
-    min-height:115px;
-
-    display:flex;
-
-    align-items:center;
-
-    gap:17px;
-
-    padding:
-        21px 22px;
-
-    border:
-        1px solid
-        rgba(255,255,255,.94);
-
-    border-radius:23px;
-
-    background:
-        rgba(255,255,255,.76);
-
-    box-shadow:
-        0 18px 42px
-        rgba(55,113,129,.065);
-
-    transition:.25s;
-}
-
-.summary-item:hover{
-
-    transform:
-        translateY(-4px);
-}
-
-.summary-icon{
-
-    width:60px;
-    height:60px;
-
-    display:flex;
-
-    align-items:center;
-    justify-content:center;
-
-    flex-shrink:0;
-
-    border-radius:18px;
-
-    color:#0a9995;
-
-    background:
-        rgba(24,216,206,.10);
-
-    font-size:26px;
-}
-
-.summary-item:nth-child(2)
-.summary-icon{
-
-    color:#7569c2;
-
-    background:
-        rgba(133,121,210,.10);
-}
-
-.summary-item:nth-child(3)
-.summary-icon{
-
-    color:#3aa47d;
-
-    background:
-        rgba(66,205,161,.10);
-}
-
-.summary-text span{
-
-    display:block;
-
-    color:#819da5;
-
-    font-size:12px;
-
-    font-weight:800;
-}
-
-.summary-text strong{
-
-    display:block;
-
-    margin-top:5px;
-
-    color:#315f70;
-
-    font-size:28px;
-
-    font-weight:950;
-}
-
-
-/* =========================================================
-   ASISTENCIAS
-========================================================= */
-
-.attendance-card{
-
-    overflow:hidden;
-
-    border:
-        1px solid
-        rgba(255,255,255,.94);
-
-    border-radius:25px;
-
-    background:
-        rgba(255,255,255,.76);
-
-    box-shadow:
-        0 18px 42px
-        rgba(55,113,129,.065);
-}
-
-.attendance-header{
-
-    display:flex;
-
-    align-items:center;
-
-    justify-content:space-between;
-
-    gap:15px;
-
-    padding:
-        23px 25px;
-
-    border-bottom:
-        1px solid
-        rgba(50,111,130,.08);
-}
-
-.attendance-header h3{
-
-    color:#416f7e;
-
-    font-size:18px;
-
-    font-weight:950;
-}
-
-.attendance-header p{
-
-    margin-top:4px;
-
-    color:#819ca4;
-
-    font-size:12px;
-}
-
-.count-badge{
-
-    padding:
-        8px 12px;
-
-    border-radius:10px;
-
-    color:#087d82;
-
-    background:
-        rgba(24,216,206,.09);
-
-    font-size:11px;
-
-    font-weight:950;
-}
-
-.table-container{
-
-    width:100%;
-
-    overflow-x:auto;
-}
-
-table{
-
-    width:100%;
-
-    border-collapse:collapse;
-
-    min-width:700px;
-}
-
-thead{
-
-    background:
-        rgba(238,249,248,.65);
-}
-
-th{
-
-    padding:
-        13px 20px;
-
-    text-align:left;
-
-    color:#7898a2;
-
-    font-size:10px;
-
-    font-weight:950;
-
-    text-transform:uppercase;
-
-    letter-spacing:.6px;
-}
-
-td{
-
-    padding:
-        15px 20px;
-
-    border-top:
-        1px solid
-        rgba(50,111,130,.065);
-
-    color:#527985;
-
-    font-size:12px;
-
-    font-weight:700;
-}
-
-.student-name{
-
-    color:#416f7e;
-
-    font-weight:900;
-}
-
-.student-document{
-
-    color:#7897a0;
-
-    font-weight:800;
-}
-
-.present-badge{
-
-    display:inline-flex;
-
-    align-items:center;
-
-    gap:6px;
-
-    padding:
-        6px 9px;
-
-    border-radius:9px;
-
-    color:#198f70;
-
-    background:
-        rgba(66,205,161,.11);
-
-    font-size:10px;
-
-    font-weight:950;
-}
-
-.excuse-badge{
-
-    display:inline-flex;
-
-    align-items:center;
-
-    gap:6px;
-
-    padding:
-        6px 9px;
-
-    border-radius:9px;
-
-    color:#a36d32;
-
-    background:
-        rgba(233,154,120,.12);
-
-    font-size:10px;
-
-    font-weight:950;
-}
-
-.empty{
-
-    padding:
-        55px 20px;
-
-    text-align:center;
-
-    color:#8aa3aa;
-
-    font-size:13px;
-
-    font-weight:750;
-}
-
-.empty i{
-
-    display:block;
-
-    margin-bottom:10px;
-
-    color:#8dc6c5;
-
-    font-size:40px;
-}
-
-
-/* =========================================================
-   RESPONSIVE
-========================================================= */
-
-@media(max-width:1100px){
-
-    .sidebar{
-        width:255px;
-    }
-
-    .session-info{
-        grid-template-columns:
-            repeat(2,1fr);
-    }
-
-    .create-form{
-        grid-template-columns:
-            1fr 170px;
-    }
-
-    .btn-create{
-        width:100%;
-    }
-
-}
-
-@media(max-width:900px){
-
-    .app{
-
-        flex-direction:column;
-
-        padding:10px;
-    }
-
-    .sidebar{
-
-        width:100%;
-
-        min-height:auto;
-    }
-
-    .navigation{
-
-        display:grid;
-
-        grid-template-columns:
-            repeat(2,1fr);
-    }
-
-    .menu-label{
-
-        grid-column:
-            1 / -1;
-    }
-
-    .sidebar-bottom{
-        display:none;
-    }
-
-    .create-form{
-        grid-template-columns:1fr;
-    }
-
-}
-
-@media(max-width:700px){
-
-    .summary-grid{
-
-        grid-template-columns:1fr;
-    }
-
-    .session-info{
-
-        grid-template-columns:1fr;
-    }
-
-}
-
-@media(max-width:650px){
-
-    .topbar{
-
-        align-items:flex-start;
-
-        flex-direction:column;
-    }
-
-    .clock-box{
-        width:100%;
-    }
-
-    .navigation{
-        grid-template-columns:1fr;
-    }
-
-    .menu-label{
-        grid-column:auto;
-    }
-
-    .session-header{
-        flex-direction:column;
-    }
-
-    .session-control{
-
-        align-items:flex-start;
-
-        flex-direction:column;
-    }
-
-    .btn-close-session{
-        width:100%;
-    }
-
-}
-
-</style>
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>Asistencia | Asistencia QR</title>
+
+    <!-- =====================================================
+         LIBRERÍA PARA LEER QR
+    ====================================================== -->
+
+    <script src="https://unpkg.com/html5-qrcode"></script>
+
+    <style>
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            background:
+                linear-gradient(
+                    135deg,
+                    #eefcfb 0%,
+                    #eef9f9 45%,
+                    #eef1ff 100%
+                );
+            color: #18546a;
+            min-height: 100vh;
+        }
+
+        a {
+            text-decoration: none;
+            color: inherit;
+        }
+
+        .layout {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        /* =====================================================
+           SIDEBAR
+        ====================================================== */
+
+        .sidebar {
+            width: 270px;
+            background: rgba(255,255,255,.86);
+            border-right: 1px solid rgba(110,180,190,.15);
+            padding: 36px 18px 24px;
+            position: fixed;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            z-index: 10;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 13px;
+            padding: 0 14px 25px;
+            border-bottom: 1px solid #e3eeee;
+            margin-bottom: 26px;
+        }
+
+        .brand-icon {
+            width: 54px;
+            height: 54px;
+            border-radius: 17px;
+            background: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 8px 25px rgba(46,120,130,.10);
+            font-size: 25px;
+        }
+
+        .brand-title {
+            font-size: 19px;
+            font-weight: 800;
+            color: #14536a;
+        }
+
+        .brand-subtitle {
+            font-size: 11px;
+            color: #7c9ba4;
+            margin-top: 5px;
+        }
+
+        .menu-title {
+            font-size: 11px;
+            font-weight: 800;
+            letter-spacing: 1px;
+            color: #7898a1;
+            margin: 20px 16px 12px;
+        }
+
+        .menu-title::before {
+            content: "";
+            display: inline-block;
+            width: 18px;
+            height: 2px;
+            background: #54ccd0;
+            vertical-align: middle;
+            margin-right: 9px;
+        }
+
+        .menu-item {
+            height: 54px;
+            display: flex;
+            align-items: center;
+            gap: 13px;
+            padding: 0 14px;
+            border-radius: 17px;
+            margin-bottom: 7px;
+            color: #587f8c;
+            font-size: 14px;
+            font-weight: 700;
+        }
+
+        .menu-item:hover {
+            background: #f0fbfb;
+        }
+
+        .menu-item.active {
+            background: linear-gradient(
+                90deg,
+                #d9f8f7,
+                #eefbfb
+            );
+            color: #08637a;
+            border-left: 4px solid #29c7c9;
+            padding-left: 10px;
+        }
+
+        .menu-icon {
+            width: 39px;
+            height: 39px;
+            border-radius: 13px;
+            background: #f4fbfb;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+        }
+
+        .menu-item.active .menu-icon {
+            background: #c8f5f3;
+        }
+
+        .user-box {
+            position: absolute;
+            left: 22px;
+            right: 22px;
+            bottom: 75px;
+            background: rgba(255,255,255,.8);
+            border-radius: 18px;
+            padding: 13px;
+            display: flex;
+            align-items: center;
+            gap: 11px;
+        }
+
+        .user-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 13px;
+            background: linear-gradient(
+                135deg,
+                #20bfc4,
+                #18aeb8
+            );
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 800;
+        }
+
+        .user-name {
+            font-weight: 800;
+            color: #215c6e;
+            font-size: 13px;
+        }
+
+        .user-role {
+            color: #7f9ba4;
+            font-size: 9px;
+            font-weight: 800;
+            margin-top: 3px;
+            letter-spacing: .8px;
+        }
+
+        .online {
+            margin-left: auto;
+            width: 5px;
+            height: 5px;
+            background: #27c89c;
+            border-radius: 50%;
+        }
+
+        .logout {
+            position: absolute;
+            left: 22px;
+            right: 22px;
+            bottom: 18px;
+            height: 45px;
+            display: flex;
+            align-items: center;
+            gap: 11px;
+            padding: 0 12px;
+            color: #668994;
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        /* =====================================================
+           CONTENIDO
+        ====================================================== */
+
+        .main {
+            margin-left: 270px;
+            width: calc(100% - 270px);
+            padding: 18px 18px 45px;
+        }
+
+        .topbar {
+            height: 110px;
+            border-radius: 25px;
+            background: rgba(255,255,255,.86);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 25px;
+            margin-bottom: 18px;
+            box-shadow: 0 10px 35px rgba(56,125,145,.04);
+        }
+
+        .top-title {
+            display: flex;
+            align-items: center;
+            gap: 13px;
+        }
+
+        .top-line {
+            width: 9px;
+            height: 48px;
+            border-radius: 8px;
+            background: linear-gradient(
+                #21c7c7,
+                #7d72dc
+            );
+        }
+
+        .top-title h1 {
+            font-size: 27px;
+            color: #15556b;
+        }
+
+        .top-title p {
+            font-size: 13px;
+            color: #76949d;
+            margin-top: 5px;
+            font-weight: 600;
+        }
+
+        .clock-box {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 14px;
+            border-radius: 17px;
+            background: #fbffff;
+        }
+
+        .clock-icon {
+            width: 37px;
+            height: 37px;
+            border-radius: 12px;
+            background: #e9fbfb;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+        }
+
+        .clock-time {
+            font-size: 17px;
+            font-weight: 800;
+            color: #15566b;
+        }
+
+        .clock-date {
+            font-size: 10px;
+            color: #839ba3;
+            margin-top: 3px;
+        }
+
+        /* =====================================================
+           ENCABEZADO
+        ====================================================== */
+
+        .hero {
+            background: rgba(255,255,255,.82);
+            border-radius: 25px;
+            padding: 25px 30px;
+            margin-bottom: 18px;
+        }
+
+        .tag {
+            display: inline-block;
+            padding: 8px 13px;
+            background: #e8fafa;
+            color: #087184;
+            border-radius: 10px;
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: .6px;
+        }
+
+        .hero h2 {
+            font-size: 26px;
+            color: #15556a;
+            margin-top: 14px;
+        }
+
+        .hero p {
+            font-size: 13px;
+            color: #6e8e99;
+            margin-top: 8px;
+        }
+
+        /* =====================================================
+           TARJETAS
+        ====================================================== */
+
+        .card {
+            background: rgba(255,255,255,.87);
+            border-radius: 23px;
+            padding: 24px;
+            margin-bottom: 18px;
+            box-shadow: 0 8px 28px rgba(59,116,135,.04);
+        }
+
+        .card-title {
+            color: #17586d;
+            font-size: 17px;
+            font-weight: 800;
+            margin-bottom: 7px;
+        }
+
+        .card-subtitle {
+            color: #78949d;
+            font-size: 12px;
+        }
+
+        .session-create {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 18px;
+            align-items: end;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 12px;
+            font-weight: 800;
+            color: #4f7986;
+            margin-bottom: 8px;
+        }
+
+        select {
+            width: 100%;
+            height: 47px;
+            border: 1px solid #dcebed;
+            border-radius: 13px;
+            padding: 0 14px;
+            background: white;
+            color: #396b79;
+            font-weight: 700;
+            outline: none;
+        }
+
+        select:focus {
+            border-color: #4ccbd0;
+        }
+
+        .btn {
+            height: 47px;
+            border: none;
+            border-radius: 13px;
+            padding: 0 22px;
+            cursor: pointer;
+            font-weight: 800;
+            font-size: 12px;
+        }
+
+        .btn-primary {
+            color: white;
+            background: linear-gradient(
+                135deg,
+                #20bfc3,
+                #28aebc
+            );
+        }
+
+        .btn-danger {
+            color: white;
+            background: linear-gradient(
+                135deg,
+                #e67d87,
+                #d96d7b
+            );
+        }
+
+        /* =====================================================
+           INFORMACIÓN SESIÓN
+        ====================================================== */
+
+        .session-info {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .session-name {
+            font-size: 22px;
+            color: #17576b;
+            font-weight: 800;
+        }
+
+        .session-details {
+            display: flex;
+            gap: 18px;
+            margin-top: 8px;
+            color: #78949d;
+            font-size: 12px;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 7px 11px;
+            border-radius: 10px;
+            font-size: 10px;
+            font-weight: 800;
+        }
+
+        .badge-open {
+            color: #13886d;
+            background: #e6faf3;
+        }
+
+        .badge-closed {
+            color: #9a6570;
+            background: #fae9ec;
+        }
+
+        /* =====================================================
+           ESCÁNER
+        ====================================================== */
+
+        .scanner-card {
+            text-align: center;
+        }
+
+        .scanner-heading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 11px;
+            margin-bottom: 5px;
+        }
+
+        .scanner-heading-icon {
+            width: 43px;
+            height: 43px;
+            border-radius: 14px;
+            background: #e3f9f8;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+        }
+
+        .scanner-title {
+            font-size: 18px;
+            font-weight: 800;
+            color: #18576b;
+        }
+
+        .scanner-description {
+            color: #78969f;
+            font-size: 12px;
+            margin-bottom: 17px;
+        }
+
+        #qr-reader {
+            width: 100%;
+            max-width: 520px;
+            margin: 0 auto;
+            border: none !important;
+            border-radius: 20px;
+            overflow: hidden;
+            background: #182022;
+        }
+
+        #qr-reader video {
+            border-radius: 20px;
+        }
+
+        #qr-reader__scan_region {
+            min-height: 320px;
+        }
+
+        #qr-reader__dashboard {
+            padding: 12px !important;
+            background: white;
+        }
+
+        #qr-reader__dashboard button {
+            border: none !important;
+            border-radius: 10px !important;
+            padding: 9px 15px !important;
+            background: #e7f8f8 !important;
+            color: #176478 !important;
+            font-weight: 700 !important;
+            cursor: pointer;
+        }
+
+        .scan-message {
+            max-width: 900px;
+            margin: 14px auto 0;
+            padding: 12px 15px;
+            border-radius: 12px;
+            display: none;
+            font-size: 12px;
+            font-weight: 700;
+            text-align: left;
+        }
+
+        .scan-message.success {
+            display: block;
+            color: #14755e;
+            background: #e8faf4;
+        }
+
+        .scan-message.error {
+            display: block;
+            color: #a1515b;
+            background: #fff0f1;
+        }
+
+        .scan-message.info {
+            display: block;
+            color: #486e79;
+            background: #eef9fa;
+        }
+
+        /* =====================================================
+           RESUMEN
+        ====================================================== */
+
+        .summary {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 14px;
+            margin-bottom: 18px;
+        }
+
+        .summary-card {
+            background: rgba(255,255,255,.87);
+            border-radius: 20px;
+            padding: 20px;
+        }
+
+        .summary-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 12px;
+            background: #e7faf9;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 12px;
+        }
+
+        .summary-number {
+            font-size: 26px;
+            font-weight: 800;
+            color: #296376;
+        }
+
+        .summary-label {
+            color: #819ba3;
+            font-size: 10px;
+            font-weight: 800;
+            margin-top: 4px;
+            text-transform: uppercase;
+        }
+
+        /* =====================================================
+           TABLA
+        ====================================================== */
+
+        .table-wrap {
+            overflow-x: auto;
+            margin-top: 18px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th {
+            text-align: left;
+            font-size: 10px;
+            color: #78949d;
+            text-transform: uppercase;
+            padding: 13px;
+            border-bottom: 1px solid #e8eeee;
+        }
+
+        td {
+            padding: 15px 13px;
+            font-size: 12px;
+            color: #4c7180;
+            border-bottom: 1px solid #eef2f3;
+        }
+
+        .student-name {
+            font-weight: 800;
+            color: #235f72;
+        }
+
+        .empty {
+            text-align: center;
+            padding: 35px;
+            color: #8aa1a8;
+            font-size: 13px;
+        }
+
+        .alert {
+            padding: 13px 17px;
+            border-radius: 13px;
+            margin-bottom: 18px;
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .alert-error {
+            background: #fff0f1;
+            color: #a3545c;
+        }
+
+        /* =====================================================
+           RESPONSIVE
+        ====================================================== */
+
+        @media (max-width: 900px) {
+
+            .sidebar {
+                width: 220px;
+            }
+
+            .main {
+                margin-left: 220px;
+                width: calc(100% - 220px);
+            }
+
+            .summary {
+                grid-template-columns: 1fr;
+            }
+
+        }
+
+        @media (max-width: 700px) {
+
+            .sidebar {
+                position: relative;
+                width: 100%;
+                min-height: auto;
+            }
+
+            .layout {
+                display: block;
+            }
+
+            .user-box,
+            .logout {
+                position: static;
+                margin-top: 10px;
+            }
+
+            .main {
+                margin-left: 0;
+                width: 100%;
+                padding: 10px;
+            }
+
+            .topbar {
+                height: auto;
+                padding: 18px;
+                gap: 15px;
+                align-items: flex-start;
+            }
+
+            .session-create,
+            .session-info {
+                grid-template-columns: 1fr;
+            }
+
+        }
+
+    </style>
 
 </head>
 
 <body>
 
-<div class="app">
+<div class="layout">
 
+    <!-- =====================================================
+         SIDEBAR
+    ====================================================== -->
 
-<!-- =====================================================
-     SIDEBAR
-====================================================== -->
+    <aside class="sidebar">
 
-<aside class="sidebar">
+        <div class="brand">
 
-<div class="sidebar-header">
+            <div class="brand-icon">
+                📷
+            </div>
 
-    <div class="logo-container">
+            <div>
+                <div class="brand-title">
+                    ASISTENCIA QR
+                </div>
 
-        <img
-            src="../Logo.png"
-            alt="Logo Asistencia QR"
-        >
-
-    </div>
-
-    <div class="sidebar-title">
-
-        <strong>
-            ASISTENCIA QR
-        </strong>
-
-        <small>
-            Sistema académico
-        </small>
-
-    </div>
-
-</div>
-
-
-<div class="sidebar-line">
-    <span></span>
-</div>
-
-
-<nav class="navigation">
-
-
-<div class="menu-section">
-
-    <div class="menu-label">
-
-        <span class="label-line"></span>
-
-        NAVEGACIÓN
-
-    </div>
-
-
-    <a
-        href="dashboard.php"
-        class="nav-link"
-    >
-
-        <div class="nav-icon">
-
-            <i class="bi bi-grid-1x2"></i>
+                <div class="brand-subtitle">
+                    Sistema académico
+                </div>
+            </div>
 
         </div>
 
-        <span>
-            Inicio
-        </span>
 
-    </a>
+        <div class="menu-title">
+            NAVEGACIÓN
+        </div>
 
-</div>
-
-
-<div class="menu-section">
-
-    <div class="menu-label">
-
-        <span class="label-line"></span>
-
-        GESTIÓN ACADÉMICA
-
-    </div>
+        <a
+            href="dashboard.php"
+            class="menu-item"
+        >
+            <span class="menu-icon">▦</span>
+            <span>Inicio</span>
+        </a>
 
 
-    <a
-        href="cursos.php"
-        class="nav-link"
-    >
+        <div class="menu-title">
+            GESTIÓN ACADÉMICA
+        </div>
 
-        <div class="nav-icon academic">
+        <a
+            href="cursos.php"
+            class="menu-item"
+        >
+            <span class="menu-icon">🎓</span>
+            <span>Mis cursos</span>
+        </a>
 
-            <i class="bi bi-mortarboard"></i>
+
+        <div class="menu-title">
+            CONTROL
+        </div>
+
+        <a
+            href="asistencia.php"
+            class="menu-item active"
+        >
+            <span class="menu-icon">▧</span>
+            <span>Asistencia</span>
+        </a>
+
+        <a
+            href="reportes.php"
+            class="menu-item"
+        >
+            <span class="menu-icon">▥</span>
+            <span>Reportes</span>
+        </a>
+
+
+        <div class="user-box">
+
+            <div class="user-avatar">
+                <?php
+                echo strtoupper(
+                    substr($nombreUsuario, 0, 1)
+                );
+                ?>
+            </div>
+
+            <div>
+                <div class="user-name">
+                    <?= htmlspecialchars($nombreUsuario) ?>
+                </div>
+
+                <div class="user-role">
+                    DOCENTE
+                </div>
+            </div>
+
+            <div class="online"></div>
 
         </div>
 
-        <span>
-            Mis cursos
-        </span>
 
-    </a>
-
-</div>
-
-
-<div class="menu-section">
-
-    <div class="menu-label">
-
-        <span class="label-line"></span>
-
-        CONTROL
-
-    </div>
-
-
-    <a
-        href="asistencia.php"
-        class="nav-link active"
-    >
-
-        <div class="nav-icon qr-icon">
-
-            <i class="bi bi-qr-code-scan"></i>
-
-        </div>
-
-        <span>
-            Asistencia
-        </span>
-
-    </a>
-
-
-    <a
-        href="reportes.php"
-        class="nav-link"
-    >
-
-        <div class="nav-icon reports">
-
-            <i class="bi bi-bar-chart-line"></i>
-
-        </div>
-
-        <span>
-            Reportes
-        </span>
-
-    </a>
-
-</div>
-
-</nav>
-
-
-<div class="sidebar-bottom">
-
-<div class="profile-card">
-
-    <div class="profile-avatar">
-
-        <?= htmlspecialchars($iniciales) ?>
-
-    </div>
-
-
-    <div class="profile-info">
-
-        <strong>
-
-            <?= htmlspecialchars(
-                $nombreUsuario
-            ) ?>
-
-        </strong>
-
-        <small>
-            DOCENTE
-        </small>
-
-    </div>
-
-
-    <div class="profile-status">
-        ●
-    </div>
-
-</div>
-
-
-<a
-    href="../auth/logout.php"
-    class="logout"
-
-    onclick="
-        return confirm(
-            '¿Deseas cerrar tu sesión?'
-        );
-    "
->
-
-    <div class="logout-icon">
-
-        <i class="bi bi-box-arrow-left"></i>
-
-    </div>
-
-    <span>
-        Cerrar sesión
-    </span>
-
-</a>
-
-</div>
-
-</aside>
-
-
-<!-- =====================================================
-     MAIN
-====================================================== -->
-
-<main class="main">
-
-
-<header class="topbar">
-
-<div class="page-info">
-
-    <div class="page-indicator"></div>
-
-    <div class="page-title">
-
-        <h1>
-            Control de asistencia
-        </h1>
-
-        <p>
-            Crea sesiones y consulta la asistencia de tus clases
-        </p>
-
-    </div>
-
-</div>
-
-
-<div class="clock-box">
-
-    <div class="clock-icon">
-
-        <i class="bi bi-clock"></i>
-
-    </div>
-
-    <div>
-
-        <div
-            class="clock-time"
-            id="reloj"
+        <a
+            href="../logout.php"
+            class="logout"
         >
-            <?= $horaActual ?>
-        </div>
+            ↪
+            <span>Cerrar sesión</span>
+        </a>
 
-        <div class="clock-date">
+    </aside>
 
-            <?= $fechaActual ?>
 
-        </div>
+    <!-- =====================================================
+         CONTENIDO PRINCIPAL
+    ====================================================== -->
 
-    </div>
+    <main class="main">
 
-</div>
 
-</header>
+        <header class="topbar">
 
+            <div class="top-title">
 
-<?php if ($mensaje !== ''): ?>
+                <div class="top-line"></div>
 
-<div class="alert alert-error">
+                <div>
+                    <h1>Asistencia</h1>
 
-    <i class="bi bi-exclamation-circle"></i>
+                    <p>
+                        Control de asistencia mediante código QR
+                    </p>
+                </div>
 
-    <?= htmlspecialchars($mensaje) ?>
+            </div>
 
-</div>
 
-<?php endif; ?>
+            <div class="clock-box">
 
+                <div class="clock-icon">
+                    ◷
+                </div>
 
-<!-- =====================================================
-     CREAR SESIÓN
-====================================================== -->
+                <div>
 
-<section class="create-card">
+                    <div
+                        class="clock-time"
+                        id="reloj"
+                    >
+                        00:00:00
+                    </div>
 
-<div class="create-header">
+                    <div
+                        class="clock-date"
+                        id="fecha"
+                    >
+                        --/--/----
+                    </div>
 
-    <div class="create-icon">
+                </div>
 
-        <i class="bi bi-calendar-plus"></i>
+            </div>
 
-    </div>
+        </header>
 
-    <div>
 
-        <h2>
-            Nueva sesión de clase
-        </h2>
+        <section class="hero">
 
-        <p>
-            Abre una sesión para que los estudiantes puedan registrar su asistencia.
-        </p>
+            <span class="tag">
+                ▦ CONTROL DE ASISTENCIA
+            </span>
 
-    </div>
+            <h2>
+                Registro de asistencia
+            </h2>
 
-</div>
+            <p>
+                Crea una sesión y registra la asistencia
+                de tus estudiantes mediante su código QR.
+            </p>
 
+        </section>
 
-<?php if (count($cursos) > 0): ?>
 
-<form
-    method="POST"
-    class="create-form"
->
+        <?php if ($mensaje !== ''): ?>
 
-    <input
-        type="hidden"
-        name="accion"
-        value="crear_sesion"
-    >
+            <div class="alert alert-error">
+                <?= htmlspecialchars($mensaje) ?>
+            </div>
 
+        <?php endif; ?>
 
-    <div class="form-group">
 
-        <label>
-            Curso
-        </label>
+        <!-- =================================================
+             CREAR SESIÓN
+        ================================================== -->
 
-        <select
-            name="id_curso"
-            class="form-control"
-            required
-        >
+        <section class="card">
 
-            <option value="">
-                Selecciona un curso
-            </option>
+            <div class="session-create">
 
-            <?php foreach ($cursos as $curso): ?>
+                <div>
 
-                <option
-                    value="<?= (int)$curso['id_curso'] ?>"
-                >
+                    <div class="card-title">
+                        Nueva sesión de asistencia
+                    </div>
 
-                    <?= htmlspecialchars(
-                        $curso['nombre_curso']
-                    ) ?>
+                    <div class="card-subtitle">
+                        Selecciona el curso para comenzar
+                        una nueva sesión.
+                    </div>
 
-                </option>
+                    <form
+                        method="POST"
+                        style="margin-top:16px;"
+                    >
 
-            <?php endforeach; ?>
+                        <input
+                            type="hidden"
+                            name="accion"
+                            value="crear_sesion"
+                        >
 
-        </select>
+                        <label class="form-label">
+                            Curso
+                        </label>
 
-    </div>
+                        <select
+                            name="id_curso"
+                            required
+                        >
 
+                            <option value="">
+                                Selecciona un curso
+                            </option>
 
-    <div class="form-group">
+                            <?php foreach ($cursos as $curso): ?>
 
-        <label>
-            Hora de inicio
-        </label>
+                                <option
+                                    value="<?= (int)$curso['id_curso'] ?>"
+                                >
+                                    <?= htmlspecialchars(
+                                        $curso['nombre_curso']
+                                    ) ?>
+                                </option>
 
-        <input
-            type="time"
-            name="hora_inicio"
-            class="form-control"
-            value="<?= date('H:i') ?>"
-            required
-        >
+                            <?php endforeach; ?>
 
-    </div>
+                        </select>
 
+                        <button
+                            type="submit"
+                            class="btn btn-primary"
+                            style="margin-top:12px;"
+                        >
+                            + Iniciar sesión
+                        </button>
 
-    <button
-        type="submit"
-        class="btn-create"
-    >
+                    </form>
 
-        <i class="bi bi-play-circle"></i>
+                </div>
 
-        Abrir sesión
+            </div>
 
-    </button>
+        </section>
 
-</form>
 
+        <?php if ($sesionActual): ?>
 
-<div class="qr-info">
 
-    <i class="bi bi-qr-code"></i>
+            <!-- =============================================
+                 INFORMACIÓN SESIÓN
+            ============================================== -->
 
-    <div>
+            <section class="card">
 
-        <strong>
-            La sesión no genera ningún QR
-        </strong>
+                <div class="session-info">
 
-        <span>
-            Los estudiantes utilizan su QR personal para registrar su asistencia en esta sesión.
-        </span>
+                    <div>
 
-    </div>
+                        <div class="card-title">
+                            Sesión actual
+                        </div>
 
-</div>
+                        <div class="session-name">
+                            <?= htmlspecialchars(
+                                $sesionActual['nombre_curso']
+                            ) ?>
+                        </div>
 
+                        <div class="session-details">
 
-<?php else: ?>
+                            <span>
+                                📅
+                                <?= date(
+                                    'd/m/Y',
+                                    strtotime(
+                                        $sesionActual['fecha']
+                                    )
+                                ) ?>
+                            </span>
 
-<div class="empty">
+                            <span>
+                                🕐
+                                <?= date(
+                                    'H:i',
+                                    strtotime(
+                                        $sesionActual['hora_inicio']
+                                    )
+                                ) ?>
+                            </span>
 
-    <i class="bi bi-mortarboard"></i>
+                        </div>
 
-    No tienes cursos asignados actualmente.
+                        <div style="margin-top:12px;">
 
-</div>
+                            <?php if (
+                                $sesionActual['estado']
+                                === 'ABIERTA'
+                            ): ?>
 
-<?php endif; ?>
+                                <span class="badge badge-open">
+                                    ● SESIÓN ABIERTA
+                                </span>
 
-</section>
+                            <?php else: ?>
 
+                                <span class="badge badge-closed">
+                                    ● SESIÓN CERRADA
+                                </span>
 
-<!-- =====================================================
-     SESIONES EXISTENTES
-====================================================== -->
+                            <?php endif; ?>
 
-<section class="session-card">
+                        </div>
 
-<div class="session-header">
+                    </div>
 
-<div>
 
-    <h2>
-        Sesiones de clase
-    </h2>
+                    <?php if (
+                        $sesionActual['estado']
+                        === 'ABIERTA'
+                    ): ?>
 
-    <p>
-        Selecciona una sesión para consultar los registros de asistencia.
-    </p>
+                        <form method="POST">
 
-</div>
+                            <input
+                                type="hidden"
+                                name="accion"
+                                value="cerrar_sesion"
+                            >
 
-</div>
+                            <input
+                                type="hidden"
+                                name="id_sesion"
+                                value="<?= (int)$sesionActual['id_sesion'] ?>"
+                            >
 
+                            <button
+                                type="submit"
+                                class="btn btn-danger"
+                                onclick="
+                                    return confirm(
+                                        '¿Deseas cerrar esta sesión de asistencia?'
+                                    );
+                                "
+                            >
+                                Cerrar sesión
+                            </button>
 
-<?php if (count($sesiones) > 0): ?>
+                        </form>
 
-<select
-    class="session-select"
-    onchange="
-        if(this.value){
-            window.location.href =
-            'asistencia.php?sesion='
-            + this.value;
-        }
-    "
->
+                    <?php endif; ?>
 
-<option value="">
-    Selecciona una sesión
-</option>
+                </div>
 
+            </section>
 
-<?php foreach ($sesiones as $sesion): ?>
 
-<option
-    value="<?= (int)$sesion['id_sesion'] ?>"
+            <!-- =============================================
+                 ESCÁNER QR
+            ============================================== -->
 
-    <?= (
-        (int)$sesion['id_sesion']
-        === $idSesionSeleccionada
-    )
-        ? 'selected'
-        : ''
-    ?>
->
+            <?php if (
+                $sesionActual['estado']
+                === 'ABIERTA'
+            ): ?>
 
-<?= htmlspecialchars(
-    $sesion['nombre_curso']
-) ?>
+                <section class="card scanner-card">
 
- —
+                    <div class="scanner-heading">
 
-<?= htmlspecialchars(
-    date(
-        'd/m/Y',
-        strtotime(
-            $sesion['fecha']
-        )
-    )
-) ?>
+                        <div class="scanner-heading-icon">
+                            ▧
+                        </div>
 
- —
+                        <div class="scanner-title">
+                            Escanear QR del estudiante
+                        </div>
 
-<?= htmlspecialchars(
-    date(
-        'H:i',
-        strtotime(
-            $sesion['hora_inicio']
-        )
-    )
-) ?>
+                    </div>
 
- —
+                    <div class="scanner-description">
+                        Apunta la cámara al código QR personal
+                        del estudiante.
+                    </div>
 
-<?= htmlspecialchars(
-    $sesion['estado']
-) ?>
 
-</option>
+                    <div id="qr-reader"></div>
 
-<?php endforeach; ?>
 
-</select>
+                    <div
+                        id="scan-message"
+                        class="scan-message"
+                    ></div>
 
+                </section>
 
-<?php if ($sesionActual): ?>
+            <?php endif; ?>
 
-<div class="session-info">
 
+            <!-- =============================================
+                 RESUMEN
+            ============================================== -->
 
-<div class="info-box">
+            <div class="summary">
 
-<span>
-Curso
-</span>
+                <div class="summary-card">
 
-<strong>
+                    <div class="summary-icon">
+                        ✓
+                    </div>
 
-<?= htmlspecialchars(
-    $sesionActual['nombre_curso']
-) ?>
+                    <div class="summary-number">
+                        <?= $totalPresentes ?>
+                    </div>
 
-</strong>
+                    <div class="summary-label">
+                        Presentes
+                    </div>
 
-</div>
+                </div>
 
 
-<div class="info-box">
+                <div class="summary-card">
 
-<span>
-Fecha
-</span>
+                    <div class="summary-icon">
+                        ▣
+                    </div>
 
-<strong>
+                    <div class="summary-number">
+                        <?= $totalExcusas ?>
+                    </div>
 
-<?= htmlspecialchars(
-    date(
-        'd/m/Y',
-        strtotime(
-            $sesionActual['fecha']
-        )
-    )
-) ?>
+                    <div class="summary-label">
+                        Excusas
+                    </div>
 
-</strong>
+                </div>
 
-</div>
 
+                <div class="summary-card">
 
-<div class="info-box">
+                    <div class="summary-icon">
+                        ◷
+                    </div>
 
-<span>
-Hora
-</span>
+                    <div class="summary-number">
+                        <?= count($asistencias) ?>
+                    </div>
 
-<strong>
+                    <div class="summary-label">
+                        Registros
+                    </div>
 
-<?= htmlspecialchars(
-    date(
-        'H:i',
-        strtotime(
-            $sesionActual['hora_inicio']
-        )
-    )
-) ?>
+                </div>
 
-</strong>
+            </div>
 
-</div>
 
+            <!-- =============================================
+                 TABLA
+            ============================================== -->
 
-<div class="info-box">
+            <section class="card">
 
-<span>
-Estado
-</span>
+                <div class="card-title">
+                    Registros de asistencia
+                </div>
 
-<strong
-    class="<?= (
-        $sesionActual['estado']
-        === 'ABIERTA'
-    )
-        ? 'status-open'
-        : 'status-closed'
-    ?>"
->
+                <div class="card-subtitle">
+                    Estudiantes registrados en esta sesión.
+                </div>
 
-<?= htmlspecialchars(
-    $sesionActual['estado']
-) ?>
 
-</strong>
+                <div class="table-wrap">
 
-</div>
+                    <?php if (!empty($asistencias)): ?>
 
+                        <table>
 
-</div>
+                            <thead>
 
+                                <tr>
 
-<?php if ($sesionActual['estado'] === 'ABIERTA'): ?>
+                                    <th>
+                                        Estudiante
+                                    </th>
 
-<div class="session-control">
+                                    <th>
+                                        Documento
+                                    </th>
 
-    <div class="session-control-text">
+                                    <th>
+                                        Estado
+                                    </th>
 
-        <i class="bi bi-broadcast"></i>
+                                    <th>
+                                        Hora
+                                    </th>
 
-        <span>
-            La sesión está abierta y puede recibir registros de los estudiantes.
-        </span>
+                                </tr>
 
-    </div>
+                            </thead>
 
+                            <tbody>
 
-    <form
-        method="POST"
-        onsubmit="
-            return confirm(
-                '¿Deseas cerrar esta sesión? Los estudiantes ya no podrán registrar asistencia en ella.'
-            );
-        "
-    >
+                                <?php foreach (
+                                    $asistencias
+                                    as $asistencia
+                                ): ?>
 
-        <input
-            type="hidden"
-            name="accion"
-            value="cerrar_sesion"
-        >
+                                    <tr>
 
-        <input
-            type="hidden"
-            name="id_sesion"
-            value="<?= (int)$sesionActual['id_sesion'] ?>"
-        >
+                                        <td>
 
-        <button
-            type="submit"
-            class="btn-close-session"
-        >
+                                            <div class="student-name">
 
-            <i class="bi bi-stop-circle"></i>
+                                                <?= htmlspecialchars(
+                                                    $asistencia['nombres']
+                                                    . ' '
+                                                    . $asistencia['apellidos']
+                                                ) ?>
 
-            Cerrar sesión
+                                            </div>
 
-        </button>
+                                        </td>
 
-    </form>
+                                        <td>
+                                            <?= htmlspecialchars(
+                                                $asistencia['documento']
+                                            ) ?>
+                                        </td>
 
-</div>
+                                        <td>
 
-<?php endif; ?>
+                                            <span
+                                                class="badge badge-open"
+                                            >
+                                                <?= htmlspecialchars(
+                                                    $asistencia['estado']
+                                                ) ?>
+                                            </span>
 
+                                        </td>
 
-<div class="qr-info">
+                                        <td>
 
-    <i class="bi bi-person-vcard"></i>
+                                            <?= date(
+                                                'H:i:s',
+                                                strtotime(
+                                                    $asistencia['hora_registro']
+                                                )
+                                            ) ?>
 
-    <div>
+                                        </td>
 
-        <strong>
-            Registro mediante QR del estudiante
-        </strong>
+                                    </tr>
 
-        <span>
-            Los estudiantes deben escanear su QR personal mientras esta sesión se encuentre abierta.
-        </span>
+                                <?php endforeach; ?>
 
-    </div>
+                            </tbody>
 
-</div>
+                        </table>
 
+                    <?php else: ?>
 
-<?php endif; ?>
+                        <div class="empty">
+                            Todavía no hay estudiantes registrados
+                            en esta sesión.
+                        </div>
 
+                    <?php endif; ?>
 
-<?php else: ?>
+                </div>
 
-<div class="empty">
+            </section>
 
-    <i class="bi bi-calendar-x"></i>
 
-    No tienes sesiones registradas.
+        <?php else: ?>
 
-</div>
 
-<?php endif; ?>
+            <section class="card">
 
-</section>
+                <div class="empty">
 
+                    No hay una sesión de asistencia abierta.
 
-<?php if ($sesionActual): ?>
+                    <br><br>
 
+                    Selecciona un curso y pulsa
+                    <strong>Iniciar sesión</strong>
+                    para comenzar.
 
-<!-- =====================================================
-     RESUMEN
-====================================================== -->
+                </div>
 
-<section class="summary-grid">
+            </section>
 
 
-<div class="summary-item">
+        <?php endif; ?>
 
-    <div class="summary-icon">
 
-        <i class="bi bi-people-fill"></i>
-
-    </div>
-
-    <div class="summary-text">
-
-        <span>
-            Asistencias registradas
-        </span>
-
-        <strong>
-            <?= $totalRegistrados ?>
-        </strong>
-
-    </div>
-
-</div>
-
-
-<div class="summary-item">
-
-    <div class="summary-icon">
-
-        <i class="bi bi-person-check-fill"></i>
-
-    </div>
-
-    <div class="summary-text">
-
-        <span>
-            Presentes
-        </span>
-
-        <strong>
-            <?= $totalPresentes ?>
-        </strong>
-
-    </div>
-
-</div>
-
-
-<div class="summary-item">
-
-    <div class="summary-icon">
-
-        <i class="bi bi-file-earmark-text-fill"></i>
-
-    </div>
-
-    <div class="summary-text">
-
-        <span>
-            Con excusa
-        </span>
-
-        <strong>
-            <?= $totalExcusas ?>
-        </strong>
-
-    </div>
+    </main>
 
 </div>
 
 
-</section>
-
-
-<!-- =====================================================
-     TABLA
-====================================================== -->
-
-<section class="attendance-card">
-
-<div class="attendance-header">
-
-<div>
-
-<h3>
-Estudiantes registrados
-</h3>
-
-<p>
-Estudiantes que han escaneado su QR durante esta sesión.
-</p>
-
-</div>
-
-
-<div class="count-badge">
-
-<?= $totalRegistrados ?>
-
-REGISTROS
-
-</div>
-
-</div>
-
-
-<div class="table-container">
-
-<?php if (count($asistencias) > 0): ?>
-
-<table>
-
-<thead>
-
-<tr>
-
-<th>
-Estudiante
-</th>
-
-<th>
-Documento
-</th>
-
-<th>
-Hora de registro
-</th>
-
-<th>
-Estado
-</th>
-
-<th>
-Excusa
-</th>
-
-</tr>
-
-</thead>
-
-
-<tbody>
-
-<?php foreach ($asistencias as $asistencia): ?>
-
-<tr>
-
-<td>
-
-<div class="student-name">
-
-<?= htmlspecialchars(
-    $asistencia['nombres']
-    . ' '
-    . $asistencia['apellidos']
-) ?>
-
-</div>
-
-</td>
-
-
-<td>
-
-<div class="student-document">
-
-<?= htmlspecialchars(
-    $asistencia['documento']
-) ?>
-
-</div>
-
-</td>
-
-
-<td>
-
-<?= htmlspecialchars(
-    date(
-        'H:i:s',
-        strtotime(
-            $asistencia['hora_registro']
-        )
-    )
-) ?>
-
-</td>
-
-
-<td>
-
-<?php if (
-    strtoupper(
-        $asistencia['estado']
-    ) === 'PRESENTE'
-): ?>
-
-<span class="present-badge">
-
-<i class="bi bi-check-circle-fill"></i>
-
-PRESENTE
-
-</span>
-
-<?php else: ?>
-
-<span class="excuse-badge">
-
-<i class="bi bi-info-circle-fill"></i>
-
-<?= htmlspecialchars(
-    $asistencia['estado']
-) ?>
-
-</span>
-
-<?php endif; ?>
-
-</td>
-
-
-<td>
-
-<?php if (
-    !empty(
-        $asistencia['estado_excusa']
-    )
-): ?>
-
-<span class="excuse-badge">
-
-<i class="bi bi-file-earmark-check"></i>
-
-<?= htmlspecialchars(
-    $asistencia['estado_excusa']
-) ?>
-
-</span>
-
-<?php else: ?>
-
-<span style="color:#9ab0b6;">
-    —
-</span>
-
-<?php endif; ?>
-
-</td>
-
-</tr>
-
-<?php endforeach; ?>
-
-</tbody>
-
-</table>
-
-
-<?php else: ?>
-
-<div class="empty">
-
-<i class="bi bi-person-x"></i>
-
-Todavía no hay estudiantes registrados
-en esta sesión.
-
-</div>
-
-<?php endif; ?>
-
-</div>
-
-</section>
-
-<?php endif; ?>
-
-
-</main>
-
-</div>
-
+<!-- =========================================================
+     JAVASCRIPT
+========================================================== -->
 
 <script>
 
-function actualizarReloj(){
+    /* =====================================================
+       RELOJ
+    ====================================================== */
 
-    const ahora = new Date();
+    function actualizarReloj() {
 
-    const horas =
-        String(
-            ahora.getHours()
-        ).padStart(2,'0');
+        const ahora = new Date();
 
-    const minutos =
-        String(
-            ahora.getMinutes()
-        ).padStart(2,'0');
+        const horas =
+            String(ahora.getHours()).padStart(2, '0');
 
-    const segundos =
-        String(
-            ahora.getSeconds()
-        ).padStart(2,'0');
+        const minutos =
+            String(ahora.getMinutes()).padStart(2, '0');
 
-    const reloj =
-        document.getElementById('reloj');
+        const segundos =
+            String(ahora.getSeconds()).padStart(2, '0');
 
-    if(reloj){
+        const dia =
+            String(ahora.getDate()).padStart(2, '0');
 
-        reloj.textContent =
-            horas
-            + ':'
-            + minutos
-            + ':'
-            + segundos;
+        const mes =
+            String(ahora.getMonth() + 1).padStart(2, '0');
+
+        const anio =
+            ahora.getFullYear();
+
+        const reloj =
+            document.getElementById('reloj');
+
+        const fecha =
+            document.getElementById('fecha');
+
+        if (reloj) {
+            reloj.textContent =
+                horas + ':' + minutos + ':' + segundos;
+        }
+
+        if (fecha) {
+            fecha.textContent =
+                dia + '/' + mes + '/' + anio;
+        }
     }
-}
 
-actualizarReloj();
+    actualizarReloj();
 
-setInterval(
-    actualizarReloj,
-    1000
-);
+    setInterval(
+        actualizarReloj,
+        1000
+    );
+
+
+    /* =====================================================
+       ESCÁNER QR
+    ====================================================== */
+
+    const idSesion =
+        <?= $sesionActual
+            ? (int)$sesionActual['id_sesion']
+            : 0 ?>;
+
+    const sesionAbierta =
+        <?= (
+            $sesionActual &&
+            $sesionActual['estado'] === 'ABIERTA'
+        )
+            ? 'true'
+            : 'false' ?>;
+
+    let procesandoQR = false;
+
+    let scanner = null;
+
+
+    function mostrarMensaje(
+        mensaje,
+        tipo
+    ) {
+
+        const elemento =
+            document.getElementById(
+                'scan-message'
+            );
+
+        if (!elemento) {
+            return;
+        }
+
+        elemento.className =
+            'scan-message ' + tipo;
+
+        elemento.textContent =
+            mensaje;
+    }
+
+
+    async function registrarQR(
+        contenidoQR
+    ) {
+
+        if (procesandoQR) {
+            return;
+        }
+
+        procesandoQR = true;
+
+        mostrarMensaje(
+            'Procesando asistencia...',
+            'info'
+        );
+
+
+        try {
+
+            const documento =
+                String(contenidoQR || '')
+                .trim();
+
+
+            if (documento === '') {
+
+                throw new Error(
+                    'El código QR está vacío.'
+                );
+            }
+
+
+            if (idSesion <= 0) {
+
+                throw new Error(
+                    'No existe una sesión válida.'
+                );
+            }
+
+
+            /*
+             * IMPORTANTE:
+             * Enviamos FormData porque
+             * procesar_asistencia.php
+             * recibe $_POST.
+             */
+
+            const datos =
+                new FormData();
+
+            datos.append(
+                'documento',
+                documento
+            );
+
+            datos.append(
+                'id_sesion',
+                idSesion
+            );
+
+
+            const respuesta =
+                await fetch(
+                    'procesar_asistencia.php',
+                    {
+                        method: 'POST',
+                        body: datos,
+                        cache: 'no-store'
+                    }
+                );
+
+
+            const texto =
+                await respuesta.text();
+
+
+            console.log(
+                'Respuesta del servidor:',
+                texto
+            );
+
+
+            let resultado;
+
+            try {
+
+                resultado =
+                    JSON.parse(texto);
+
+            } catch (errorJSON) {
+
+                console.error(
+                    'Respuesta no válida:',
+                    texto
+                );
+
+                throw new Error(
+                    'El servidor devolvió una respuesta inesperada.'
+                );
+            }
+
+
+            if (!resultado.success) {
+
+                mostrarMensaje(
+                    resultado.mensaje ||
+                    'No fue posible registrar la asistencia.',
+                    'error'
+                );
+
+                setTimeout(
+                    () => {
+                        procesandoQR = false;
+                    },
+                    1800
+                );
+
+                return;
+            }
+
+
+            mostrarMensaje(
+                resultado.mensaje +
+                ' Estudiante: ' +
+                resultado.estudiante +
+                ' | Hora: ' +
+                resultado.hora,
+                'success'
+            );
+
+
+            /*
+             * Esperamos un momento para que
+             * el docente vea el mensaje.
+             */
+
+            setTimeout(
+                function () {
+
+                    window.location.href =
+                        'asistencia.php?sesion=' +
+                        idSesion;
+
+                },
+                1300
+            );
+
+
+        } catch (error) {
+
+            console.error(
+                'Error:',
+                error
+            );
+
+            mostrarMensaje(
+                error.message ||
+                'No fue posible comunicarse con el servidor.',
+                'error'
+            );
+
+            setTimeout(
+                () => {
+                    procesandoQR = false;
+                },
+                1800
+            );
+        }
+    }
+
+
+    function iniciarScanner() {
+
+        if (!sesionAbierta) {
+            return;
+        }
+
+        const lector =
+            document.getElementById('qr-reader');
+
+        if (!lector) {
+            return;
+        }
+
+        if (typeof Html5Qrcode === 'undefined') {
+
+            mostrarMensaje(
+                'No se pudo cargar el lector QR.',
+                'error'
+            );
+
+            return;
+        }
+
+
+        scanner =
+            new Html5Qrcode('qr-reader');
+
+
+        const configuracion = {
+
+            fps: 10,
+
+            qrbox: {
+                width: 250,
+                height: 250
+            },
+
+            aspectRatio: 1.0
+
+        };
+
+
+        scanner.start(
+
+            {
+                facingMode: 'user'
+            },
+
+            configuracion,
+
+            function(decodedText) {
+
+                console.log(
+                    'Código QR detectado:',
+                    decodedText
+                );
+
+                registrarQR(decodedText);
+
+            },
+
+            function(errorMessage) {
+
+                // El lector está buscando el QR.
+                // No mostramos estos mensajes.
+
+            }
+
+        ).catch(function(error) {
+
+            console.error(
+                'Error de cámara:',
+                error
+            );
+
+            mostrarMensaje(
+                'No fue posible iniciar la cámara. Verifica los permisos del navegador.',
+                'error'
+            );
+
+        });
+
+    }
+
+    
+
+
+    /*
+     * Esperar a que la página termine
+     * de cargar antes de iniciar la cámara.
+     */
+
+    document.addEventListener(
+        'DOMContentLoaded',
+        function() {
+
+            if (
+                sesionAbierta &&
+                typeof Html5Qrcode !== 'undefined'
+            ) {
+
+                iniciarScanner();
+
+            }
+
+        }
+    );
 
 </script>
 
 </body>
-
 </html>
-```
