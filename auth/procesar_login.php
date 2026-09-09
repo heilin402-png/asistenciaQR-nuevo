@@ -1,4 +1,3 @@
-```php
 <?php
 
 /* ==========================================================
@@ -66,25 +65,6 @@ if ($usuario === '' || $password === '') {
 
 /* ==========================================================
    CONSULTAR USUARIO
-==========================================================
-
-   IMPORTANTE:
-
-   La tabla usuarios REAL de tu proyecto tiene:
-
-   id_usuario
-   nombre
-   apellido
-   usuario
-   password
-   id_rol
-   estado
-   fecha_creacion
-
-   NO existe:
-
-   documento
-
 ========================================================== */
 
 $sql = "
@@ -315,16 +295,25 @@ if ((int) $id_rol === 2) {
 }
 
 
+/* ----------------------------------------------------------
+   RESTAURANTE
+   id_rol = 3
+---------------------------------------------------------- */
+
+if ((int) $id_rol === 3) {
+
+    header(
+        "Location: ../restaurante/dashboard.php"
+    );
+
+    exit();
+
+}
+
+
 /* ==========================================================
    ROL NO RECONOCIDO
 ========================================================== */
-
-/*
-   Si el usuario existe pero tiene un rol que
-   todavía no está configurado en el sistema,
-   destruimos la sesión para evitar dejar
-   una sesión parcialmente autenticada.
-*/
 
 $_SESSION = [];
 
@@ -359,4 +348,3 @@ header(
 exit();
 
 ?>
-```

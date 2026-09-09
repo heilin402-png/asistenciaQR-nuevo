@@ -2311,7 +2311,7 @@ tbody tr:hover{
                 </div>
 
                 <span>
-                    Mis cursos
+                    Cursos
                 </span>
 
                 <span class="nav-arrow">

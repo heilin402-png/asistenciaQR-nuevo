@@ -15,6 +15,12 @@ if (session_status() === PHP_SESSION_NONE) {
 
 if (isset($_SESSION['id_usuario'])) {
 
+    /*
+    ==========================================================
+       ADMINISTRADOR
+    ==========================================================
+    */
+
     if (
         isset($_SESSION['id_rol']) &&
         (int) $_SESSION['id_rol'] === 1
@@ -25,12 +31,36 @@ if (isset($_SESSION['id_usuario'])) {
 
     }
 
+
+    /*
+    ==========================================================
+       DOCENTE
+    ==========================================================
+    */
+
     if (
         isset($_SESSION['id_rol']) &&
         (int) $_SESSION['id_rol'] === 2
     ) {
 
         header("Location: ../docente/dashboard.php");
+        exit();
+
+    }
+
+
+    /*
+    ==========================================================
+       RESTAURANTE
+    ==========================================================
+    */
+
+    if (
+        isset($_SESSION['id_rol']) &&
+        (int) $_SESSION['id_rol'] === 3
+    ) {
+
+        header("Location: ../restaurante/dashboard.php");
         exit();
 
     }

@@ -2431,28 +2431,6 @@ Reportes
 
 </a>
 
-
-<a
-    href="auditoria.php"
-    class="nav-link"
->
-
-<div class="nav-icon audit">
-
-<i class="bi bi-shield-check"></i>
-
-</div>
-
-<span>
-Auditoría
-</span>
-
-<span class="nav-arrow">
-→
-</span>
-
-</a>
-
 </div>
 
 
