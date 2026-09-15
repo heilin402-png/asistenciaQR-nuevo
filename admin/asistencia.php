@@ -2710,7 +2710,7 @@ body{
                                                     'h:i:s A',
                                                     strtotime(
                                                         $llegada[
-                                                            'hora_llegada'
+                                                        'hora_llegada'
                                                         ]
                                                     )
                                                 )
