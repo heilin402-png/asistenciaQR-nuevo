@@ -1,211 +1,192 @@
 <?php
 
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+
 session_start();
 
-header(
-    'Content-Type: application/json; charset=utf-8'
-);
+require_once("../config/conexion.php");
+
+date_default_timezone_set('America/Bogota');
+
+header('Content-Type: application/json; charset=utf-8');
 
 
-/* =========================================================
-   FUNCIÓN PARA RESPONDER JSON
-========================================================= */
+/* =====================================================
+   VERIFICAR SESIÓN
+   ===================================================== */
 
-function responder(
-    bool $success,
-    string $mensaje,
-    array $extra = []
-): void {
+if (!isset($_SESSION["id_usuario"])) {
 
-    echo json_encode(
-        array_merge(
-            [
-                'success' => $success,
-                'mensaje' => $mensaje
-            ],
-            $extra
-        ),
-        JSON_UNESCAPED_UNICODE
-    );
+    echo json_encode([
+        "success" => false,
+        "message" => "La sesión del docente no está activa."
+    ]);
 
     exit();
+
 }
 
 
-/* =========================================================
-   VERIFICAR SESIÓN DEL DOCENTE
-========================================================= */
+/* =====================================================
+   VERIFICAR ROL DOCENTE
+   ===================================================== */
 
-if (!isset($_SESSION['id_usuario'])) {
+if (!isset($_SESSION["id_rol"]) || $_SESSION["id_rol"] != 2) {
 
-    responder(
-        false,
-        'La sesión del docente ha expirado.'
-    );
+    echo json_encode([
+        "success" => false,
+        "message" => "No tienes permisos para registrar asistencia."
+    ]);
+
+    exit();
+
 }
 
 
-require_once "../config/conexion.php";
-
-date_default_timezone_set(
-    'America/Bogota'
-);
+$idDocente = (int) $_SESSION["id_usuario"];
 
 
-$idDocente =
-    (int)$_SESSION['id_usuario'];
+/* =====================================================
+   VERIFICAR MÉTODO POST
+   ===================================================== */
+
+if ($_SERVER["REQUEST_METHOD"] !== "POST") {
+
+    echo json_encode([
+        "success" => false,
+        "message" => "Solicitud no válida."
+    ]);
+
+    exit();
+
+}
 
 
-/* =========================================================
+/* =====================================================
    RECIBIR DATOS
-========================================================= */
+   ===================================================== */
 
-$documento =
-    trim(
-        $_POST['documento'] ?? ''
-    );
-
-$idSesion =
-    (int)(
-        $_POST['id_sesion'] ?? 0
-    );
+$documento = trim($_POST["documento"] ?? "");
+$idSesion = (int) ($_POST["id_sesion"] ?? 0);
 
 
-/* =========================================================
+/* =====================================================
    VALIDAR DATOS
-========================================================= */
+   ===================================================== */
 
-if ($documento === '') {
+if ($documento === "") {
 
-    responder(
-        false,
-        'No se recibió el documento del estudiante.'
-    );
+    echo json_encode([
+        "success" => false,
+        "message" => "No se recibió el documento del estudiante."
+    ]);
+
+    exit();
+
 }
-
 
 if ($idSesion <= 0) {
 
-    responder(
-        false,
-        'No se indicó la sesión de clase.'
-    );
+    echo json_encode([
+        "success" => false,
+        "message" => "No se seleccionó una sesión válida."
+    ]);
+
+    exit();
+
 }
 
 
-/* =========================================================
-   VERIFICAR SESIÓN
-========================================================= */
+/* =====================================================
+   BUSCAR SESIÓN
+   ===================================================== */
 
 $sqlSesion = "
-
     SELECT
         s.id_sesion,
+        s.id_docente,
         s.id_curso,
+        s.fecha,
+        s.hora_inicio,
         s.estado,
         c.nombre_curso
-
     FROM sesiones_clase s
-
     INNER JOIN cursos c
         ON c.id_curso = s.id_curso
-
     WHERE s.id_sesion = ?
     AND s.id_docente = ?
-
     LIMIT 1
-
 ";
 
-
-$stmtSesion =
-    mysqli_prepare(
-        $conexion,
-        $sqlSesion
-    );
-
+$stmtSesion = $conexion->prepare($sqlSesion);
 
 if (!$stmtSesion) {
 
-    responder(
-        false,
-        'No fue posible consultar la sesión.'
-    );
+    echo json_encode([
+        "success" => false,
+        "message" => "Error preparando la consulta de la sesión."
+    ]);
+
+    exit();
+
 }
 
-
-mysqli_stmt_bind_param(
-    $stmtSesion,
+$stmtSesion->bind_param(
     "ii",
     $idSesion,
     $idDocente
 );
 
+$stmtSesion->execute();
 
-if (!mysqli_stmt_execute($stmtSesion)) {
+$resultadoSesion = $stmtSesion->get_result();
 
-    mysqli_stmt_close(
-        $stmtSesion
-    );
+$sesion = $resultadoSesion->fetch_assoc();
 
-    responder(
-        false,
-        'No fue posible verificar la sesión.'
-    );
-}
+$stmtSesion->close();
 
 
-$resultadoSesion =
-    mysqli_stmt_get_result(
-        $stmtSesion
-    );
-
-
-$sesion =
-    mysqli_fetch_assoc(
-        $resultadoSesion
-    );
-
-
-mysqli_stmt_close(
-    $stmtSesion
-);
-
+/* =====================================================
+   VERIFICAR SESIÓN
+   ===================================================== */
 
 if (!$sesion) {
 
-    responder(
-        false,
-        'La sesión no existe o no pertenece al docente.'
-    );
+    echo json_encode([
+        "success" => false,
+        "message" => "La sesión no existe o no pertenece al docente."
+    ]);
+
+    exit();
+
 }
 
 
-/* =========================================================
-   VERIFICAR QUE ESTÉ ABIERTA
-========================================================= */
+/* =====================================================
+   VERIFICAR QUE LA SESIÓN ESTÉ ABIERTA
+   ===================================================== */
 
-if (
-    strtoupper(
-        trim(
-            $sesion['estado']
-        )
-    ) !== 'ABIERTA'
-) {
+if ($sesion["estado"] !== "ABIERTA") {
 
-    responder(
-        false,
-        'La sesión de asistencia está cerrada.'
-    );
+    echo json_encode([
+        "success" => false,
+        "message" => "La sesión está cerrada."
+    ]);
+
+    exit();
+
 }
 
 
-/* =========================================================
-   BUSCAR ESTUDIANTE POR DOCUMENTO
-========================================================= */
+$idCurso = (int) $sesion["id_curso"];
+
+
+/* =====================================================
+   BUSCAR ESTUDIANTE
+   ===================================================== */
 
 $sqlEstudiante = "
-
     SELECT
         id_estudiante,
         documento,
@@ -213,334 +194,260 @@ $sqlEstudiante = "
         apellidos,
         id_curso,
         estado
-
     FROM estudiantes
-
     WHERE documento = ?
-
+    AND estado = 'ACTIVO'
     LIMIT 1
-
 ";
 
-
-$stmtEstudiante =
-    mysqli_prepare(
-        $conexion,
-        $sqlEstudiante
-    );
-
+$stmtEstudiante = $conexion->prepare($sqlEstudiante);
 
 if (!$stmtEstudiante) {
 
-    responder(
-        false,
-        'No fue posible consultar el estudiante.'
-    );
+    echo json_encode([
+        "success" => false,
+        "message" => "Error preparando la consulta del estudiante."
+    ]);
+
+    exit();
+
 }
 
-
-mysqli_stmt_bind_param(
-    $stmtEstudiante,
+$stmtEstudiante->bind_param(
     "s",
     $documento
 );
 
+$stmtEstudiante->execute();
 
-if (!mysqli_stmt_execute($stmtEstudiante)) {
+$resultadoEstudiante = $stmtEstudiante->get_result();
 
-    mysqli_stmt_close(
-        $stmtEstudiante
-    );
+$estudiante = $resultadoEstudiante->fetch_assoc();
 
-    responder(
-        false,
-        'No fue posible buscar el estudiante.'
-    );
-}
+$stmtEstudiante->close();
 
 
-$resultadoEstudiante =
-    mysqli_stmt_get_result(
-        $stmtEstudiante
-    );
-
-
-$estudiante =
-    mysqli_fetch_assoc(
-        $resultadoEstudiante
-    );
-
-
-mysqli_stmt_close(
-    $stmtEstudiante
-);
-
-
-/* =========================================================
-   ESTUDIANTE NO ENCONTRADO
-========================================================= */
+/* =====================================================
+   VERIFICAR ESTUDIANTE
+   ===================================================== */
 
 if (!$estudiante) {
 
-    responder(
-        false,
-        'No se encontró un estudiante con ese documento.'
-    );
+    echo json_encode([
+        "success" => false,
+        "message" => "No se encontró un estudiante activo con ese documento."
+    ]);
+
+    exit();
+
 }
 
 
-/* =========================================================
-   VERIFICAR ESTADO DEL ESTUDIANTE
-========================================================= */
+/* =====================================================
+   VERIFICAR QUE EL ESTUDIANTE PERTENEZCA
+   AL CURSO DE LA SESIÓN
+   ===================================================== */
 
-$estadoEstudiante =
-    strtoupper(
-        trim(
-            (string)$estudiante['estado']
-        )
-    );
+if ((int)$estudiante["id_curso"] !== $idCurso) {
 
+    echo json_encode([
+        "success" => false,
+        "message" => "El estudiante no pertenece al curso de esta sesión."
+    ]);
 
-if ($estadoEstudiante !== 'ACTIVO') {
+    exit();
 
-    responder(
-        false,
-        'El estudiante no se encuentra activo.'
-    );
 }
 
 
-/* =========================================================
-   VERIFICAR CURSO
-========================================================= */
+/* =====================================================
+   VERIFICAR QUE EL DOCENTE TENGA ASIGNADO EL CURSO
+   ===================================================== */
 
-if (
-    (int)$estudiante['id_curso']
-    !==
-    (int)$sesion['id_curso']
-) {
-
-    responder(
-        false,
-        'El estudiante no pertenece al curso de esta sesión.'
-    );
-}
-
-
-/* =========================================================
-   VERIFICAR SI YA TIENE ASISTENCIA
-========================================================= */
-
-$idEstudiante =
-    (int)$estudiante['id_estudiante'];
-
-
-$sqlExiste = "
-
-    SELECT
-        id_asistencia,
-        hora_registro
-
-    FROM asistencia_clase
-
-    WHERE id_sesion = ?
-    AND id_estudiante = ?
-
+$sqlAsignacion = "
+    SELECT id_docente_curso
+    FROM docente_curso
+    WHERE id_usuario = ?
+    AND id_curso = ?
     LIMIT 1
-
 ";
 
+$stmtAsignacion = $conexion->prepare($sqlAsignacion);
 
-$stmtExiste =
-    mysqli_prepare(
-        $conexion,
-        $sqlExiste
-    );
+if (!$stmtAsignacion) {
 
+    echo json_encode([
+        "success" => false,
+        "message" => "Error verificando la asignación del docente."
+    ]);
+
+    exit();
+
+}
+
+$stmtAsignacion->bind_param(
+    "ii",
+    $idDocente,
+    $idCurso
+);
+
+$stmtAsignacion->execute();
+
+$resultadoAsignacion = $stmtAsignacion->get_result();
+
+$asignacion = $resultadoAsignacion->fetch_assoc();
+
+$stmtAsignacion->close();
+
+
+if (!$asignacion) {
+
+    echo json_encode([
+        "success" => false,
+        "message" => "El docente no tiene asignado este curso."
+    ]);
+
+    exit();
+
+}
+
+
+/* =====================================================
+   VERIFICAR SI YA TIENE ASISTENCIA
+   ===================================================== */
+
+$sqlExiste = "
+    SELECT
+        id_asistencia,
+        estado,
+        hora_registro
+    FROM asistencia_clase
+    WHERE id_sesion = ?
+    AND id_estudiante = ?
+    LIMIT 1
+";
+
+$stmtExiste = $conexion->prepare($sqlExiste);
 
 if (!$stmtExiste) {
 
-    responder(
-        false,
-        'No fue posible verificar la asistencia anterior.'
-    );
+    echo json_encode([
+        "success" => false,
+        "message" => "Error verificando la asistencia."
+    ]);
+
+    exit();
+
 }
 
+$idEstudiante = (int) $estudiante["id_estudiante"];
 
-mysqli_stmt_bind_param(
-    $stmtExiste,
+$stmtExiste->bind_param(
     "ii",
     $idSesion,
     $idEstudiante
 );
 
+$stmtExiste->execute();
 
-if (!mysqli_stmt_execute($stmtExiste)) {
+$resultadoExiste = $stmtExiste->get_result();
 
-    mysqli_stmt_close(
-        $stmtExiste
-    );
+$asistenciaExiste = $resultadoExiste->fetch_assoc();
 
-    responder(
-        false,
-        'No fue posible verificar la asistencia.'
-    );
+$stmtExiste->close();
+
+
+/* =====================================================
+   SI YA ESTÁ REGISTRADO
+   ===================================================== */
+
+if ($asistenciaExiste) {
+
+    echo json_encode([
+        "success" => true,
+        "duplicado" => true,
+        "message" => "El estudiante ya tiene asistencia registrada.",
+        "estudiante" =>
+            $estudiante["nombres"] . " " . $estudiante["apellidos"],
+        "documento" => $estudiante["documento"],
+        "curso" => $sesion["nombre_curso"],
+        "estado" => $asistenciaExiste["estado"],
+        "hora" => $asistenciaExiste["hora_registro"]
+    ]);
+
+    exit();
+
 }
 
 
-$resultadoExiste =
-    mysqli_stmt_get_result(
-        $stmtExiste
-    );
+/* =====================================================
+   REGISTRAR ASISTENCIA
+   ===================================================== */
 
-
-$registroExiste =
-    mysqli_fetch_assoc(
-        $resultadoExiste
-    );
-
-
-mysqli_stmt_close(
-    $stmtExiste
-);
-
-
-/* =========================================================
-   ASISTENCIA DUPLICADA
-========================================================= */
-
-if ($registroExiste) {
-
-    $horaAnterior =
-        date(
-            'H:i:s',
-            strtotime(
-                $registroExiste['hora_registro']
-            )
-        );
-
-
-    responder(
-        false,
-        'La asistencia de ' .
-        $estudiante['nombres'] .
-        ' ' .
-        $estudiante['apellidos'] .
-        ' ya estaba registrada.',
-        [
-            'duplicado' => true,
-            'hora' => $horaAnterior
-        ]
-    );
-}
-
-
-/* =========================================================
-   INSERTAR ASISTENCIA
-========================================================= */
-
-$estado =
-    'PRESENTE';
-
+$estado = "PRESENTE";
 
 $sqlInsertar = "
-
     INSERT INTO asistencia_clase
     (
         id_sesion,
         id_estudiante,
-        estado,
-        estado_excusa,
-        hora_registro
+        estado
     )
-
-    VALUES
-    (
-        ?,
-        ?,
-        ?,
-        NULL,
-        NOW()
-    )
-
+    VALUES (?, ?, ?)
 ";
 
-
-$stmtInsertar =
-    mysqli_prepare(
-        $conexion,
-        $sqlInsertar
-    );
-
+$stmtInsertar = $conexion->prepare($sqlInsertar);
 
 if (!$stmtInsertar) {
 
-    responder(
-        false,
-        'No fue posible preparar el registro de asistencia.'
-    );
+    echo json_encode([
+        "success" => false,
+        "message" => "Error preparando el registro de asistencia."
+    ]);
+
+    exit();
+
 }
 
-
-mysqli_stmt_bind_param(
-    $stmtInsertar,
+$stmtInsertar->bind_param(
     "iis",
     $idSesion,
     $idEstudiante,
     $estado
 );
 
+if (!$stmtInsertar->execute()) {
 
-if (!mysqli_stmt_execute($stmtInsertar)) {
+    echo json_encode([
+        "success" => false,
+        "message" => "No fue posible registrar la asistencia."
+    ]);
 
-    $errorMysql =
-        mysqli_stmt_error(
-            $stmtInsertar
-        );
+    $stmtInsertar->close();
 
-    mysqli_stmt_close(
-        $stmtInsertar
-    );
+    exit();
 
-
-    /*
-     * Esto aparecerá en la consola
-     * mientras estamos probando el sistema.
-     */
-
-    responder(
-        false,
-        'No fue posible registrar la asistencia: ' .
-        $errorMysql
-    );
 }
 
-
-mysqli_stmt_close(
-    $stmtInsertar
-);
+$stmtInsertar->close();
 
 
-/* =========================================================
-   ÉXITO
-========================================================= */
+/* =====================================================
+   RESPUESTA EXITOSA
+   ===================================================== */
 
-responder(
-    true,
-    'Asistencia registrada correctamente.',
-    [
-        'estudiante' =>
-            $estudiante['nombres'] .
-            ' ' .
-            $estudiante['apellidos'],
+echo json_encode([
+    "success" => true,
+    "duplicado" => false,
+    "message" => "Asistencia registrada correctamente.",
+    "estudiante" =>
+        $estudiante["nombres"] . " " . $estudiante["apellidos"],
+    "documento" => $estudiante["documento"],
+    "curso" => $sesion["nombre_curso"],
+    "estado" => "PRESENTE",
+    "hora" => date("Y-m-d H:i:s")
+]);
 
-        'documento' =>
-            $estudiante['documento'],
+exit();
 
-        'curso' =>
-            $sesion['nombre_curso'],
-
-        'hora' =>
-            date('H:i:s')
-    ]
-);
+?>

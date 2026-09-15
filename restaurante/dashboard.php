@@ -2,32 +2,268 @@
 
 session_start();
 
-/* ==========================
-   VERIFICAR SESIÓN
-   ========================== */
+/* =========================================================
+   PROTECCIÓN DE SESIÓN
+========================================================= */
 
 if (!isset($_SESSION["id_usuario"])) {
     header("Location: ../auth/login.php");
     exit();
 }
 
-
-/* ==========================
+/* =========================================================
    VERIFICAR ROL RESTAURANTE
-   ========================== */
+========================================================= */
 
 if ($_SESSION["id_rol"] != 3) {
     header("Location: ../index.php");
     exit();
 }
 
+/* =========================================================
+   CONEXIÓN
+========================================================= */
 
-/* ==========================
+require_once "../config/conexion.php";
+
+date_default_timezone_set('America/Bogota');
+
+/* =========================================================
    DATOS DEL USUARIO
-   ========================== */
+========================================================= */
 
-$nombre = $_SESSION["nombre"] ?? "";
-$apellido = $_SESSION["apellido"] ?? "";
+$nombreUsuario = $_SESSION["nombre"] ?? "Usuario Restaurante";
+$apellidoUsuario = $_SESSION["apellido"] ?? "";
+
+$nombreCompleto = trim(
+    $nombreUsuario . " " . $apellidoUsuario
+);
+
+$partesNombre = preg_split(
+    '/\s+/',
+    trim($nombreCompleto)
+);
+
+$primerNombre = $partesNombre[0] ?? "Usuario";
+
+/* =========================================================
+   INICIALES
+========================================================= */
+
+$iniciales = "";
+
+foreach (
+    array_slice(
+        $partesNombre,
+        0,
+        2
+    ) as $parte
+) {
+    $iniciales .= strtoupper(
+        substr($parte, 0, 1)
+    );
+}
+
+if ($iniciales === "") {
+    $iniciales = "RE";
+}
+
+/* =========================================================
+   FECHA Y HORA
+========================================================= */
+
+$horaActual = date("H:i:s");
+$fechaActual = date("d/m/Y");
+$fechaHoy = date("Y-m-d");
+
+/* =========================================================
+   ESTUDIANTES ACTIVOS
+========================================================= */
+
+$totalEstudiantes = 0;
+
+$sqlEstudiantes = "
+    SELECT COUNT(*) AS total
+    FROM estudiantes
+    WHERE estado = 'ACTIVO'
+";
+
+$resultadoEstudiantes = mysqli_query(
+    $conexion,
+    $sqlEstudiantes
+);
+
+if ($resultadoEstudiantes) {
+    $filaEstudiantes = mysqli_fetch_assoc(
+        $resultadoEstudiantes
+    );
+
+    $totalEstudiantes = (int)(
+        $filaEstudiantes["total"] ?? 0
+    );
+}
+
+/* =========================================================
+   ASISTENCIAS DEL RESTAURANTE DE HOY
+========================================================= */
+
+$totalHoy = 0;
+
+$sqlTotalHoy = "
+    SELECT COUNT(*) AS total
+    FROM asistencia_restaurante
+    WHERE fecha = ?
+";
+
+$stmtTotalHoy = mysqli_prepare(
+    $conexion,
+    $sqlTotalHoy
+);
+
+if ($stmtTotalHoy) {
+
+    mysqli_stmt_bind_param(
+        $stmtTotalHoy,
+        "s",
+        $fechaHoy
+    );
+
+    mysqli_stmt_execute(
+        $stmtTotalHoy
+    );
+
+    $resultadoTotalHoy = mysqli_stmt_get_result(
+        $stmtTotalHoy
+    );
+
+    $filaTotalHoy = mysqli_fetch_assoc(
+        $resultadoTotalHoy
+    );
+
+    $totalHoy = (int)(
+        $filaTotalHoy["total"] ?? 0
+    );
+
+    mysqli_stmt_close(
+        $stmtTotalHoy
+    );
+}
+
+/* =========================================================
+   ASISTENCIAS ÚLTIMOS 7 DÍAS
+========================================================= */
+
+$grafica = [];
+
+$dias = [
+    "Mon" => "Lun",
+    "Tue" => "Mar",
+    "Wed" => "Mié",
+    "Thu" => "Jue",
+    "Fri" => "Vie",
+    "Sat" => "Sáb",
+    "Sun" => "Dom"
+];
+
+for (
+    $i = 6;
+    $i >= 0;
+    $i--
+) {
+
+    $fechaGrafica = date(
+        "Y-m-d",
+        strtotime("-$i days")
+    );
+
+    $diaNombre = date(
+        "D",
+        strtotime($fechaGrafica)
+    );
+
+    $grafica[] = [
+        "fecha" => $fechaGrafica,
+        "dia" => $dias[$diaNombre] ?? $diaNombre,
+        "total" => 0
+    ];
+}
+
+/* =========================================================
+   CONSULTAR ASISTENCIAS PARA LA GRÁFICA
+========================================================= */
+
+$fechaInicioGrafica = date(
+    "Y-m-d",
+    strtotime("-6 days")
+);
+
+$sqlGrafica = "
+    SELECT
+        fecha,
+        COUNT(*) AS total
+    FROM asistencia_restaurante
+    WHERE fecha BETWEEN ? AND ?
+    GROUP BY fecha
+    ORDER BY fecha ASC
+";
+
+$stmtGrafica = mysqli_prepare(
+    $conexion,
+    $sqlGrafica
+);
+
+if ($stmtGrafica) {
+
+    mysqli_stmt_bind_param(
+        $stmtGrafica,
+        "ss",
+        $fechaInicioGrafica,
+        $fechaHoy
+    );
+
+    mysqli_stmt_execute(
+        $stmtGrafica
+    );
+
+    $resultadoGrafica = mysqli_stmt_get_result(
+        $stmtGrafica
+    );
+
+    $datosPorFecha = [];
+
+    while (
+        $fila = mysqli_fetch_assoc(
+            $resultadoGrafica
+        )
+    ) {
+        $datosPorFecha[$fila["fecha"]] =
+            (int)$fila["total"];
+    }
+
+    foreach (
+        $grafica as &$diaGrafica
+    ) {
+
+        if (
+            isset(
+                $datosPorFecha[
+                    $diaGrafica["fecha"]
+                ]
+            )
+        ) {
+            $diaGrafica["total"] =
+                $datosPorFecha[
+                    $diaGrafica["fecha"]
+                ];
+        }
+    }
+
+    unset($diaGrafica);
+
+    mysqli_stmt_close(
+        $stmtGrafica
+    );
+}
 
 ?>
 
@@ -36,684 +272,2230 @@ $apellido = $_SESSION["apellido"] ?? "";
 
 <head>
 
-    <meta charset="UTF-8">
+<meta charset="UTF-8">
+
+<meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+>
+
+<title>
+    Asistencia QR | Restaurante
+</title>
+
+<link
+    rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css"
+>
+
+<style>
+
+/* =========================================================
+   VARIABLES
+========================================================= */
+
+:root{
+    --aqua:#18d8ce;
+    --aqua-dark:#087d92;
+    --blue:#69b8d5;
+    --mint:#42cda1;
+    --purple:#8579d2;
+    --coral:#e99a78;
+    --yellow:#f0b84d;
+    --text:#3e6f7d;
+    --dark:#20596d;
+    --muted:#7897a0;
+}
+
+/* =========================================================
+   RESET
+========================================================= */
+
+*{
+    margin:0;
+    padding:0;
+    box-sizing:border-box;
+}
+
+body{
+    min-height:100vh;
+    overflow-x:hidden;
+    font-family:"Segoe UI", Arial, sans-serif;
+    color:var(--text);
+
+    background:
+        radial-gradient(
+            circle at 5% 10%,
+            rgba(24,216,206,.13),
+            transparent 27%
+        ),
+
+        radial-gradient(
+            circle at 96% 88%,
+            rgba(133,121,210,.13),
+            transparent 30%
+        ),
+
+        linear-gradient(
+            135deg,
+            #e8faf7 0%,
+            #f8fdfc 48%,
+            #eaf6fb 100%
+        );
+}
+
+/* =========================================================
+   APP
+========================================================= */
+
+.app{
+    position:relative;
+    z-index:1;
+    display:flex;
+    gap:18px;
+    min-height:100vh;
+    padding:18px;
+}
+
+/* =========================================================
+   SIDEBAR
+========================================================= */
+
+.sidebar{
+    width:285px;
+    flex-shrink:0;
+    min-height:calc(100vh - 36px);
+
+    display:flex;
+    flex-direction:column;
+
+    padding:22px 16px 16px;
+
+    border:1px solid rgba(255,255,255,.94);
+    border-radius:29px;
+
+    background:
+        linear-gradient(
+            145deg,
+            rgba(255,255,255,.87),
+            rgba(232,250,247,.68)
+        );
+
+    backdrop-filter:blur(25px);
+
+    box-shadow:
+        0 25px 65px
+        rgba(55,113,129,.10);
+}
+
+/* =========================================================
+   CABECERA SIDEBAR
+========================================================= */
+
+.sidebar-header{
+    display:flex;
+    align-items:center;
+    gap:13px;
+    padding:3px 9px 20px;
+}
+
+.logo-container{
+    width:64px;
+    height:64px;
+
+    display:flex;
+    align-items:center;
+    justify-content:center;
+
+    padding:7px;
+    flex-shrink:0;
+
+    border-radius:19px;
+    background:rgba(255,255,255,.76);
+    border:1px solid rgba(255,255,255,.95);
+
+    box-shadow:
+        0 12px 30px
+        rgba(55,113,129,.10);
+}
+
+.logo-container img{
+    width:100%;
+    height:100%;
+    object-fit:contain;
+}
+
+.sidebar-title strong{
+    display:block;
+    color:#075273;
+    font-size:19px;
+    font-weight:950;
+}
+
+.sidebar-title small{
+    display:block;
+    margin-top:6px;
+    color:#7898a1;
+    font-size:11px;
+    font-weight:750;
+}
+
+.sidebar-line{
+    position:relative;
+    height:1px;
+    margin:0 9px 16px;
+    background:rgba(50,111,130,.09);
+}
+
+.sidebar-line span{
+    position:absolute;
+    left:0;
+    top:-1px;
+    width:55px;
+    height:2px;
+    border-radius:5px;
+
+    background:
+        linear-gradient(
+            90deg,
+            var(--aqua),
+            transparent
+        );
+}
+
+/* =========================================================
+   NAVEGACIÓN
+========================================================= */
+
+.navigation{
+    flex:1;
+}
+
+.menu-section{
+    margin-bottom:12px;
+}
+
+.menu-label{
+    display:flex;
+    align-items:center;
+    gap:8px;
+
+    min-height:30px;
+    padding:0 11px;
+
+    color:#7d9aa3;
+    font-size:11px;
+    font-weight:950;
+    letter-spacing:1.35px;
+}
+
+.label-line{
+    width:17px;
+    height:2px;
+    border-radius:4px;
+    background:#b9d7db;
+}
+
+.nav-link{
+    position:relative;
+
+    display:flex;
+    align-items:center;
+    gap:11px;
+
+    width:100%;
+    min-height:55px;
+
+    margin-bottom:4px;
+    padding:6px 10px;
+
+    border-radius:15px;
+
+    color:#557f8b;
+    text-decoration:none;
+
+    font-size:14px;
+    font-weight:850;
+
+    transition:.25s;
+}
+
+.nav-link:hover{
+    color:#075273;
+    background:rgba(255,255,255,.74);
+    transform:translateX(4px);
+}
+
+.nav-link.active{
+    color:#08758a;
+
+    background:
+        linear-gradient(
+            100deg,
+            rgba(24,216,206,.17),
+            rgba(255,255,255,.70)
+        );
+}
+
+.nav-link.active::before{
+    content:"";
+
+    position:absolute;
+    left:0;
+    top:8px;
+    bottom:8px;
+
+    width:4px;
+
+    border-radius:0 7px 7px 0;
+
+    background:
+        linear-gradient(
+            180deg,
+            var(--aqua),
+            var(--blue)
+        );
+}
+
+.nav-icon{
+    width:40px;
+    height:40px;
+
+    display:flex;
+    align-items:center;
+    justify-content:center;
+
+    flex-shrink:0;
+
+    border-radius:12px;
+
+    color:#4b98a8;
+    background:rgba(24,216,206,.075);
+
+    font-size:19px;
+}
+
+.nav-icon.qr{
+    color:#078395;
+    background:rgba(24,216,206,.12);
+}
+
+.nav-icon.search{
+    color:#5578ca;
+    background:rgba(105,184,213,.12);
+}
+
+.nav-icon.report{
+    color:#bd8a40;
+    background:rgba(209,161,88,.12);
+}
+
+.nav-icon.info{
+    color:#7569c2;
+    background:rgba(133,121,210,.11);
+}
+
+.nav-arrow{
+    margin-left:auto;
+    color:#a1b8be;
+    opacity:0;
+    transition:.2s;
+}
+
+.nav-link:hover .nav-arrow{
+    opacity:1;
+}
+
+/* =========================================================
+   PERFIL
+========================================================= */
+
+.sidebar-bottom{
+    margin-top:auto;
+    padding-top:10px;
+}
+
+.profile-card{
+    display:flex;
+    align-items:center;
+    gap:10px;
+
+    padding:10px 11px;
+
+    border-radius:15px;
+
+    background:rgba(255,255,255,.54);
+    border:1px solid rgba(255,255,255,.85);
+}
+
+.profile-avatar{
+    width:42px;
+    height:42px;
+
+    display:flex;
+    align-items:center;
+    justify-content:center;
+
+    flex-shrink:0;
+
+    border-radius:12px;
+
+    color:#fff;
+
+    background:
+        linear-gradient(
+            145deg,
+            #f0bd57,
+            #d28c20
+        );
+
+    font-size:14px;
+    font-weight:950;
+}
+
+.profile-info{
+    flex:1;
+    min-width:0;
+}
+
+.profile-info strong{
+    display:block;
+    overflow:hidden;
+
+    color:#4d7c89;
+
+    font-size:13px;
+    font-weight:900;
+
+    white-space:nowrap;
+    text-overflow:ellipsis;
+}
+
+.profile-info small{
+    display:block;
+    margin-top:3px;
+    color:#8ca6ad;
+    font-size:10px;
+}
+
+.profile-status{
+    color:#27b884;
+    font-size:11px;
+}
+
+.logout{
+    display:flex;
+    align-items:center;
+    gap:9px;
+
+    min-height:48px;
+    margin-top:3px;
+    padding:0 10px;
+
+    color:#b86e77;
+    text-decoration:none;
+
+    font-size:13px;
+    font-weight:850;
+}
+
+.logout:hover{
+    color:#a4535c;
+    background:rgba(242,143,150,.08);
+    border-radius:13px;
+}
+
+.logout-icon{
+    width:35px;
+    height:35px;
+
+    display:flex;
+    align-items:center;
+    justify-content:center;
+
+    border-radius:10px;
+    background:rgba(242,143,150,.08);
+}
+
+/* =========================================================
+   MAIN
+========================================================= */
+
+.main{
+    flex:1;
+    min-width:0;
+
+    display:flex;
+    flex-direction:column;
+    gap:18px;
+}
+
+/* =========================================================
+   TOPBAR
+========================================================= */
+
+.topbar{
+    min-height:82px;
+
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+
+    gap:20px;
+    padding:14px 22px;
+
+    border:1px solid rgba(255,255,255,.92);
+    border-radius:23px;
+
+    background:rgba(255,255,255,.68);
+
+    backdrop-filter:blur(20px);
+
+    box-shadow:
+        0 16px 42px
+        rgba(55,113,129,.065);
+}
+
+.page-info{
+    display:flex;
+    align-items:center;
+    gap:13px;
+}
+
+.page-indicator{
+    width:9px;
+    height:47px;
+    border-radius:7px;
+
+    background:
+        linear-gradient(
+            180deg,
+            var(--yellow),
+            var(--aqua)
+        );
+}
+
+.page-title h1{
+    color:#15576c;
+    font-size:28px;
+    font-weight:950;
+}
+
+.page-title p{
+    margin-top:5px;
+    color:#7898a2;
+    font-size:14px;
+    font-weight:650;
+}
+
+/* =========================================================
+   RELOJ
+========================================================= */
+
+.clock-box{
+    display:flex;
+    align-items:center;
+    gap:12px;
+
+    padding:10px 15px;
+
+    border-radius:15px;
+
+    background:rgba(255,255,255,.73);
+    border:1px solid rgba(255,255,255,.90);
+}
+
+.clock-icon{
+    width:38px;
+    height:38px;
+
+    display:flex;
+    align-items:center;
+    justify-content:center;
+
+    border-radius:11px;
+
+    color:#0b9f9c;
+    background:rgba(24,216,206,.10);
+
+    font-size:18px;
+}
+
+.clock-time{
+    color:#155b70;
+    font-size:18px;
+    font-weight:950;
+    letter-spacing:.5px;
+}
+
+.clock-date{
+    margin-top:2px;
+    color:#819ba3;
+    font-size:10px;
+    font-weight:750;
+}
+
+/* =========================================================
+   BIENVENIDA
+========================================================= */
+
+.welcome{
+    position:relative;
+    min-height:215px;
+    overflow:hidden;
+
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+
+    gap:30px;
+    padding:30px 40px;
+
+    border:1px solid rgba(255,255,255,.94);
+    border-radius:28px;
+
+    background:
+
+        radial-gradient(
+            circle at 84% 20%,
+            rgba(245,190,70,.16),
+            transparent 25%
+        ),
+
+        radial-gradient(
+            circle at 65% 110%,
+            rgba(133,121,210,.13),
+            transparent 34%
+        ),
+
+        linear-gradient(
+            135deg,
+            rgba(255,255,255,.85),
+            rgba(236,250,248,.72)
+        );
+
+    box-shadow:
+        0 22px 52px
+        rgba(55,113,129,.08);
+}
+
+.welcome::before{
+    content:"";
+
+    position:absolute;
+
+    width:300px;
+    height:300px;
+
+    right:-70px;
+    top:-190px;
+
+    border-radius:50%;
+
+    border:45px solid rgba(245,190,70,.055);
+}
+
+.welcome::after{
+    content:"";
+
+    position:absolute;
+
+    width:190px;
+    height:190px;
+
+    right:300px;
+    bottom:-135px;
+
+    border-radius:50%;
+
+    background:rgba(133,121,210,.06);
+}
+
+.welcome-content{
+    position:relative;
+    z-index:3;
+    max-width:720px;
+}
+
+.welcome-tag{
+    display:inline-flex;
+    align-items:center;
+    gap:7px;
+
+    margin-bottom:11px;
+    padding:7px 12px;
+
+    border-radius:10px;
+
+    color:#b47a16;
+    background:rgba(245,190,70,.11);
+
+    font-size:10px;
+    font-weight:950;
+    letter-spacing:.7px;
+}
+
+.welcome h2{
+    color:#15576c;
+    font-size:33px;
+    font-weight:950;
+    line-height:1.15;
+}
+
+.welcome h2 span{
+    color:#d99a24;
+}
+
+.welcome p{
+    max-width:680px;
+
+    margin-top:11px;
+
+    color:#7898a2;
+    font-size:14px;
+    font-weight:650;
+    line-height:1.65;
+}
+
+/* =========================================================
+   ILUSTRACIÓN
+========================================================= */
+
+.welcome-illustration{
+    position:relative;
+    z-index:3;
+
+    width:250px;
+    height:170px;
+
+    flex-shrink:0;
+}
+
+.illustration-glow{
+    position:absolute;
+
+    width:145px;
+    height:145px;
+
+    right:25px;
+    top:10px;
+
+    border-radius:50%;
+
+    background:
+        radial-gradient(
+            circle,
+            rgba(245,190,70,.18),
+            transparent 68%
+        );
+
+    animation:
+        glowPulse 4s ease-in-out infinite;
+}
+
+@keyframes glowPulse{
+    0%,100%{
+        transform:scale(1);
+        opacity:.7;
+    }
+
+    50%{
+        transform:scale(1.13);
+        opacity:1;
+    }
+}
+
+.illustration-platform{
+    position:absolute;
+
+    right:22px;
+    bottom:9px;
+
+    width:170px;
+    height:34px;
+
+    border-radius:50%;
+
+    transform:rotate(-4deg);
+
+    background:
+        linear-gradient(
+            135deg,
+            rgba(245,190,70,.28),
+            rgba(24,216,206,.22)
+        );
+
+    box-shadow:
+        0 15px 28px
+        rgba(55,113,129,.12);
+}
+
+.illustration-device{
+    position:absolute;
+
+    right:47px;
+    top:23px;
+
+    width:118px;
+    height:126px;
+
+    padding:10px;
+
+    border-radius:23px;
+
+    transform:rotate(7deg);
+
+    background:
+        linear-gradient(
+            145deg,
+            #ffffff,
+            #e5f7f5
+        );
+
+    border:1px solid rgba(255,255,255,.95);
+
+    box-shadow:
+        0 22px 35px
+        rgba(55,113,129,.16);
+
+    animation:
+        deviceFloat 4s ease-in-out infinite;
+}
+
+@keyframes deviceFloat{
+    0%,100%{
+        transform:translateY(0) rotate(7deg);
+    }
+
+    50%{
+        transform:translateY(-7px) rotate(7deg);
+    }
+}
+
+.device-screen{
+    width:100%;
+    height:100%;
+
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+
+    gap:9px;
+
+    border-radius:15px;
+
+    background:
+        linear-gradient(
+            145deg,
+            #eefcf9,
+            #ffffff
+        );
+}
+
+.qr-modern{
+    width:61px;
+    height:61px;
+
+    display:grid;
+    grid-template-columns:repeat(5,1fr);
+
+    gap:3px;
+    padding:7px;
+
+    border-radius:11px;
+
+    background:#fff;
+
+    box-shadow:
+        0 7px 18px
+        rgba(24,216,206,.12);
+}
+
+.qr-modern span{
+    border-radius:2px;
+    background:#387d89;
+}
+
+.qr-modern span:nth-child(2),
+.qr-modern span:nth-child(5),
+.qr-modern span:nth-child(9),
+.qr-modern span:nth-child(12),
+.qr-modern span:nth-child(17),
+.qr-modern span:nth-child(21),
+.qr-modern span:nth-child(24){
+    background:#18cfc6;
+}
+
+.device-line{
+    width:43px;
+    height:5px;
+    border-radius:5px;
+    background:#b9dfe0;
+}
+
+.float-element{
+    position:absolute;
+
+    display:flex;
+    align-items:center;
+    justify-content:center;
+
+    border-radius:14px;
+
+    box-shadow:
+        0 12px 25px
+        rgba(55,113,129,.12);
+
+    animation:
+        elementFloat 3.5s ease-in-out infinite;
+}
+
+.float-element i{
+    font-size:18px;
+}
+
+.float-one{
+    left:5px;
+    top:32px;
+
+    width:45px;
+    height:45px;
+
+    color:#fff;
+
+    background:
+        linear-gradient(
+            145deg,
+            #f0bd57,
+            #d28c20
+        );
+}
+
+.float-two{
+    right:0;
+    top:7px;
+
+    width:37px;
+    height:37px;
+
+    color:#fff;
+
+    background:
+        linear-gradient(
+            145deg,
+            #18d8ce,
+            #087d92
+        );
 
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    animation-delay:.7s;
+}
 
-    <title>Dashboard Restaurante</title>
+.float-three{
+    left:32px;
+    bottom:20px;
 
+    width:31px;
+    height:31px;
+
+    color:#0b9f9c;
 
-    <!-- Bootstrap -->
+    background:rgba(255,255,255,.92);
+
+    animation-delay:1.2s;
+}
 
-    <link
-        href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/css/bootstrap.min.css"
-        rel="stylesheet"
-    >
+@keyframes elementFloat{
+    0%,100%{
+        transform:translateY(0);
+    }
+
+    50%{
+        transform:translateY(-8px);
+    }
+}
+
+/* =========================================================
+   RESUMEN
+========================================================= */
+
+.summary-grid{
+    display:grid;
+    grid-template-columns:repeat(3,minmax(0,1fr));
+    gap:16px;
+}
+
+.summary-item{
+    position:relative;
+    min-height:128px;
+    overflow:hidden;
+
+    display:flex;
+    align-items:center;
+
+    gap:17px;
+    padding:21px 22px;
+
+    border:1px solid rgba(255,255,255,.94);
+    border-radius:23px;
+
+    background:rgba(255,255,255,.76);
+
+    box-shadow:
+        0 18px 42px
+        rgba(55,113,129,.065);
+
+    transition:
+        transform .25s,
+        box-shadow .25s;
+}
+
+.summary-item::after{
+    content:"";
+
+    position:absolute;
+
+    width:90px;
+    height:90px;
+
+    right:-35px;
+    bottom:-45px;
+
+    border-radius:50%;
+
+    background:
+        rgba(24,216,206,.055);
+}
+
+.summary-item:hover{
+    transform:translateY(-5px);
+
+    box-shadow:
+        0 24px 48px
+        rgba(55,113,129,.10);
+}
+
+.summary-icon{
+    width:63px;
+    height:63px;
+
+    display:flex;
+    align-items:center;
+    justify-content:center;
+
+    flex-shrink:0;
+
+    border-radius:18px;
+
+    color:#0a9995;
+    background:rgba(24,216,206,.10);
+
+    font-size:28px;
+}
 
+.summary-item:nth-child(2) .summary-icon{
+    color:#d99a24;
+    background:rgba(245,190,70,.12);
+}
+
+.summary-item:nth-child(3) .summary-icon{
+    color:#7569c2;
+    background:rgba(133,121,210,.10);
+}
+
+.summary-text span{
+    display:block;
+    color:#819da5;
+    font-size:12px;
+    font-weight:800;
+}
+
+.summary-text strong{
+    display:block;
+    margin-top:5px;
+    color:#315f70;
+    font-size:30px;
+    font-weight:950;
+    line-height:1;
+}
+
+/* =========================================================
+   ANALYTICS
+========================================================= */
+
+.analytics-layout{
+    display:grid;
+
+    grid-template-columns:
+        minmax(0,1.75fr)
+        minmax(290px,.85fr);
+
+    gap:16px;
+}
 
-    <!-- Bootstrap Icons -->
+.chart-card{
+    padding:24px 25px 21px;
+
+    border:1px solid rgba(255,255,255,.94);
+    border-radius:25px;
+
+    background:rgba(255,255,255,.74);
+
+    box-shadow:
+        0 18px 42px
+        rgba(55,113,129,.065);
+}
+
+.section-heading{
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+
+    gap:15px;
+    margin-bottom:20px;
+}
+
+.section-heading h3{
+    color:#416f7e;
+    font-size:18px;
+    font-weight:950;
+}
+
+.section-heading p{
+    margin-top:5px;
+    color:#819ca4;
+    font-size:12px;
+    font-weight:650;
+}
+
+.week-label{
+    display:flex;
+    align-items:center;
+    gap:7px;
+
+    padding:7px 10px;
+
+    border-radius:10px;
+
+    color:#17867f;
+    background:rgba(24,216,206,.08);
+
+    font-size:10px;
+    font-weight:900;
+}
+
+.chart-area{
+    height:220px;
+
+    display:flex;
+    align-items:flex-end;
+
+    gap:13px;
+
+    padding:10px 5px 0;
+}
+
+.chart-column{
+    flex:1;
+    height:100%;
+
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:flex-end;
+
+    gap:8px;
+}
+
+.chart-value{
+    min-height:18px;
+
+    color:#668995;
+    font-size:10px;
+    font-weight:850;
+}
+
+.chart-bar-wrapper{
+    width:100%;
+    height:170px;
+
+    display:flex;
+    align-items:flex-end;
+    justify-content:center;
+}
 
-    <link
-        rel="stylesheet"
-        href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css"
-    >
+.chart-bar{
+    width:min(52px,70%);
+    min-height:7px;
 
+    border-radius:12px 12px 7px 7px;
 
-    <style>
+    background:
+        linear-gradient(
+            180deg,
+            #f0bd57,
+            #69b8d5
+        );
 
-        body {
-            margin: 0;
-            font-family: Arial, sans-serif;
-            background-color: #f4f6f9;
-        }
+    box-shadow:
+        0 8px 18px
+        rgba(245,190,70,.13);
 
+    transition:
+        height .5s ease,
+        transform .2s ease;
+}
+
+.chart-bar:hover{
+    transform:translateY(-5px);
+}
+
+.chart-day{
+    color:#7897a0;
+    font-size:10px;
+    font-weight:850;
+}
 
-        /* ==========================
-           BARRA LATERAL
-           ========================== */
+/* =========================================================
+   ACCIONES
+========================================================= */
 
-        .sidebar {
+.today-card{
+    padding:24px;
 
-            position: fixed;
+    border:1px solid rgba(255,255,255,.94);
+    border-radius:25px;
 
-            left: 0;
-            top: 0;
+    background:
+        linear-gradient(
+            145deg,
+            rgba(255,255,255,.80),
+            rgba(236,250,248,.68)
+        );
 
-            width: 255px;
-            height: 100vh;
+    box-shadow:
+        0 18px 42px
+        rgba(55,113,129,.065);
+}
+
+.today-card h3{
+    color:#416f7e;
+    font-size:18px;
+    font-weight:950;
+}
+
+.today-card > p{
+    margin-top:5px;
+    color:#819ca4;
+    font-size:12px;
+    font-weight:650;
+}
 
-            background: linear-gradient(180deg, #0d1b2a, #1b263b);
+.quick-actions{
+    display:grid;
+    grid-template-columns:repeat(3,1fr);
 
-            color: white;
+    gap:10px;
+    margin-top:19px;
+}
+
+.quick-action{
+    display:flex;
+    align-items:center;
+    justify-content:center;
 
-            padding: 20px;
+    gap:8px;
 
-        }
+    min-height:54px;
+    padding:8px 10px;
 
+    border-radius:14px;
 
-        .logo {
+    color:#557f8b;
 
-            text-align: center;
+    background:rgba(255,255,255,.68);
 
-            margin-bottom: 25px;
+    border:1px solid rgba(255,255,255,.82);
 
-        }
+    text-decoration:none;
 
+    font-size:11px;
+    font-weight:850;
 
-        .logo img {
+    transition:.25s;
+}
 
-            width: 80px;
+.quick-action:hover{
+    color:#075273;
+    transform:translateY(-3px);
 
-            height: 80px;
+    box-shadow:
+        0 10px 22px
+        rgba(55,113,129,.08);
+}
 
-            object-fit: contain;
+.quick-action i{
+    font-size:19px;
+}
 
-            margin-bottom: 10px;
+.quick-action.qr i{
+    color:#078395;
+}
 
-        }
+.quick-action.search i{
+    color:#5578ca;
+}
 
+.quick-action.report i{
+    color:#bd8a40;
+}
 
-        .logo h5 {
+/* =========================================================
+   INFORMACIÓN
+========================================================= */
 
-            margin: 0;
+.info-card{
+    padding:24px;
 
-            font-weight: bold;
+    border:1px solid rgba(255,255,255,.94);
+    border-radius:25px;
 
-        }
+    background:rgba(255,255,255,.74);
 
+    box-shadow:
+        0 18px 42px
+        rgba(55,113,129,.065);
+}
 
-        .menu {
+.info-card h3{
+    color:#416f7e;
+    font-size:18px;
+    font-weight:950;
+}
 
-            margin-top: 25px;
+.info-card p{
+    margin-top:9px;
+    color:#819ca4;
+    font-size:12px;
+    font-weight:650;
+    line-height:1.7;
+}
 
-        }
+.info-box{
+    margin-top:15px;
+    padding:13px 15px;
 
+    border-radius:14px;
 
-        .menu a {
+    color:#527b86;
+    background:rgba(24,216,206,.07);
 
-            display: block;
+    font-size:12px;
+    font-weight:700;
+}
 
-            color: white;
+.info-box i{
+    margin-right:6px;
+    color:#0a9995;
+}
 
-            text-decoration: none;
+/* =========================================================
+   RESPONSIVE
+========================================================= */
 
-            padding: 12px 15px;
+@media(max-width:1200px){
 
-            border-radius: 8px;
+    .sidebar{
+        width:255px;
+    }
 
-            margin-bottom: 8px;
+}
 
-            transition: 0.3s;
+@media(max-width:1050px){
 
-        }
+    .summary-grid{
+        grid-template-columns:repeat(2,1fr);
+    }
 
+    .analytics-layout{
+        grid-template-columns:1fr;
+    }
 
-        .menu a:hover,
-        .menu a.active {
+}
 
-            background-color: rgba(255,255,255,0.15);
+@media(max-width:900px){
 
-        }
+    .app{
+        flex-direction:column;
+        padding:10px;
+    }
 
+    .sidebar{
+        width:100%;
+        min-height:auto;
+    }
 
-        .menu i {
+    .navigation{
+        display:grid;
+        grid-template-columns:repeat(2,1fr);
+    }
 
-            margin-right: 10px;
+    .menu-label{
+        grid-column:1 / -1;
+    }
 
-        }
+    .sidebar-bottom{
+        display:none;
+    }
 
+}
 
-        .usuario {
+@media(max-width:700px){
 
-            position: absolute;
+    .summary-grid{
+        grid-template-columns:1fr;
+    }
 
-            bottom: 20px;
+    .welcome{
+        padding:25px 22px;
+    }
 
-            left: 20px;
+    .welcome h2{
+        font-size:26px;
+    }
 
-            right: 20px;
+    .welcome-illustration{
+        display:none;
+    }
 
-            border-top: 1px solid rgba(255,255,255,0.2);
+    .quick-actions{
+        grid-template-columns:1fr;
+    }
 
-            padding-top: 15px;
+}
 
-        }
+@media(max-width:650px){
 
+    .topbar{
+        align-items:flex-start;
+        flex-direction:column;
+    }
 
-        .usuario a {
+    .clock-box{
+        width:100%;
+    }
 
-            color: white;
+    .navigation{
+        grid-template-columns:1fr;
+    }
 
-            text-decoration: none;
+    .menu-label{
+        grid-column:auto;
+    }
 
-        }
+    .chart-area{
+        gap:6px;
+    }
 
+    .chart-bar{
+        width:75%;
+    }
 
-        /* ==========================
-           CONTENIDO
-           ========================== */
+}
 
-        .contenido {
-
-            margin-left: 255px;
-
-            padding: 30px;
-
-        }
-
-
-        .encabezado {
-
-            margin-bottom: 25px;
-
-        }
-
-
-        .encabezado h2 {
-
-            font-weight: bold;
-
-            color: #1b263b;
-
-        }
-
-
-        .tarjeta-bienvenida {
-
-            background: white;
-
-            border-radius: 15px;
-
-            padding: 25px;
-
-            margin-bottom: 25px;
-
-            box-shadow: 0 4px 15px rgba(0,0,0,0.08);
-
-        }
-
-
-        .tarjeta-bienvenida h3 {
-
-            color: #1b263b;
-
-            font-weight: bold;
-
-        }
-
-
-        /* ==========================
-           ESTADÍSTICAS
-           ========================== */
-
-        .estadistica {
-
-            background: white;
-
-            border-radius: 15px;
-
-            padding: 25px;
-
-            box-shadow: 0 4px 15px rgba(0,0,0,0.08);
-
-            height: 100%;
-
-        }
-
-
-        .estadistica i {
-
-            font-size: 35px;
-
-            color: #1b263b;
-
-        }
-
-
-        .estadistica h3 {
-
-            margin-top: 10px;
-
-            font-weight: bold;
-
-        }
-
-
-        .estadistica p {
-
-            color: #6c757d;
-
-            margin: 0;
-
-        }
-
-
-        /* ==========================
-           ACCIONES
-           ========================== */
-
-        .acciones {
-
-            background: white;
-
-            border-radius: 15px;
-
-            padding: 25px;
-
-            margin-top: 25px;
-
-            box-shadow: 0 4px 15px rgba(0,0,0,0.08);
-
-        }
-
-
-        .boton-accion {
-
-            display: block;
-
-            text-decoration: none;
-
-            color: white;
-
-            background-color: #1b263b;
-
-            padding: 18px;
-
-            border-radius: 10px;
-
-            text-align: center;
-
-            transition: 0.3s;
-
-        }
-
-
-        .boton-accion:hover {
-
-            background-color: #0d1b2a;
-
-            color: white;
-
-            transform: translateY(-2px);
-
-        }
-
-
-        .boton-accion i {
-
-            font-size: 30px;
-
-            display: block;
-
-            margin-bottom: 8px;
-
-        }
-
-
-        /* ==========================
-           INFORMACIÓN
-           ========================== */
-
-        .informacion {
-
-            background: white;
-
-            border-radius: 15px;
-
-            padding: 25px;
-
-            margin-top: 25px;
-
-            box-shadow: 0 4px 15px rgba(0,0,0,0.08);
-
-        }
-
-
-        /* ==========================
-           RESPONSIVE
-           ========================== */
-
-        @media (max-width: 768px) {
-
-            .sidebar {
-
-                position: relative;
-
-                width: 100%;
-
-                height: auto;
-
-            }
-
-
-            .usuario {
-
-                position: relative;
-
-                left: 0;
-
-                right: 0;
-
-                bottom: 0;
-
-                margin-top: 20px;
-
-            }
-
-
-            .contenido {
-
-                margin-left: 0;
-
-                padding: 20px;
-
-            }
-
-        }
-
-    </style>
+</style>
 
 </head>
 
-
 <body>
 
+<div class="app">
 
-<!-- ==========================
-     BARRA LATERAL
-     ========================== -->
+<!-- =====================================================
+     SIDEBAR
+====================================================== -->
 
 <aside class="sidebar">
 
+    <div class="sidebar-header">
 
-    <div class="logo">
+        <div class="logo-container">
 
-        <img src="../Logo.png" alt="Logo">
-
-        <h5>Restaurante</h5>
-
-        <small>Sistema de asistencia</small>
-
-    </div>
-
-
-    <div class="menu">
-
-        <a href="dashboard.php" class="active">
-
-            <i class="bi bi-speedometer2"></i>
-
-            Dashboard
-
-        </a>
-
-
-        <a href="asistencia.php">
-
-            <i class="bi bi-qr-code-scan"></i>
-
-            Tomar asistencia
-
-        </a>
-
-
-        <a href="consultar.php">
-
-            <i class="bi bi-search"></i>
-
-            Consultar asistencia
-
-        </a>
-
-
-        <a href="reportes.php">
-
-            <i class="bi bi-file-earmark-bar-graph"></i>
-
-            Reportes
-
-        </a>
-
-    </div>
-
-
-    <div class="usuario">
-
-        <div class="mb-2">
-
-            <i class="bi bi-person-circle"></i>
-
-            <?php echo htmlspecialchars($nombre . " " . $apellido); ?>
+            <img
+                src="../Logo.png"
+                alt="Logo Asistencia QR"
+            >
 
         </div>
 
+        <div class="sidebar-title">
 
-        <a href="../auth/cerrar_sesion.php">
+            <strong>
+                ASISTENCIA QR
+            </strong>
 
-            <i class="bi bi-box-arrow-right"></i>
+            <small>
+                Sistema académico
+            </small>
 
-            Cerrar sesión
-
-        </a>
-
-    </div>
-
-
-</aside>
-
-
-
-<!-- ==========================
-     CONTENIDO PRINCIPAL
-     ========================== -->
-
-<main class="contenido">
-
-
-    <div class="encabezado">
-
-        <h2>Dashboard</h2>
-
-        <p class="text-muted">
-
-            Panel de control del restaurante
-
-        </p>
+        </div>
 
     </div>
 
+    <div class="sidebar-line">
 
-
-    <!-- BIENVENIDA -->
-
-    <div class="tarjeta-bienvenida">
-
-        <h3>
-
-            ¡Bienvenido/a,
-
-            <?php echo htmlspecialchars($nombre); ?>! 👋
-
-        </h3>
-
-
-        <p class="text-muted mb-0">
-
-            Desde este panel puedes gestionar la asistencia de los estudiantes al restaurante.
-
-        </p>
+        <span></span>
 
     </div>
 
+    <nav class="navigation">
 
+        <!-- INICIO -->
 
-    <!-- ESTADÍSTICAS -->
+        <div class="menu-section">
 
-    <div class="row g-4">
+            <div class="menu-label">
 
+                <span class="label-line"></span>
 
-        <div class="col-md-4">
-
-            <div class="estadistica">
-
-                <i class="bi bi-people-fill"></i>
-
-                <h3>0</h3>
-
-                <p>Estudiantes registrados</p>
+                NAVEGACIÓN
 
             </div>
 
+            <a
+                href="dashboard.php"
+                class="nav-link active"
+            >
+
+                <div class="nav-icon">
+
+                    <i class="bi bi-grid-1x2"></i>
+
+                </div>
+
+                <span>
+                    Inicio
+                </span>
+
+                <span class="nav-arrow">
+                    →
+                </span>
+
+            </a>
+
         </div>
 
+        <!-- CONTROL -->
 
+        <div class="menu-section">
 
-        <div class="col-md-4">
+            <div class="menu-label">
 
-            <div class="estadistica">
+                <span class="label-line"></span>
 
-                <i class="bi bi-check-circle-fill"></i>
-
-                <h3>0</h3>
-
-                <p>Asistencias de hoy</p>
+                CONTROL DEL RESTAURANTE
 
             </div>
 
-        </div>
+            <a
+                href="asistencia.php"
+                class="nav-link"
+            >
 
-
-
-        <div class="col-md-4">
-
-            <div class="estadistica">
-
-                <i class="bi bi-calendar3"></i>
-
-                <h3>
-
-                    <?php echo date("d/m/Y"); ?>
-
-                </h3>
-
-                <p>Fecha actual</p>
-
-            </div>
-
-        </div>
-
-
-    </div>
-
-
-
-    <!-- ACCIONES RÁPIDAS -->
-
-    <div class="acciones">
-
-        <h4 class="mb-4">
-
-            Acciones rápidas
-
-        </h4>
-
-
-        <div class="row g-3">
-
-
-            <div class="col-md-4">
-
-                <a href="asistencia.php" class="boton-accion">
+                <div class="nav-icon qr">
 
                     <i class="bi bi-qr-code-scan"></i>
 
+                </div>
+
+                <span>
                     Tomar asistencia
+                </span>
 
-                </a>
+                <span class="nav-arrow">
+                    →
+                </span>
 
-            </div>
+            </a>
 
+            <a
+                href="consultar.php"
+                class="nav-link"
+            >
 
-            <div class="col-md-4">
-
-                <a href="consultar.php" class="boton-accion">
+                <div class="nav-icon search">
 
                     <i class="bi bi-search"></i>
 
+                </div>
+
+                <span>
                     Consultar asistencia
+                </span>
 
-                </a>
+                <span class="nav-arrow">
+                    →
+                </span>
+
+            </a>
+
+            <a
+                href="reportes.php"
+                class="nav-link"
+            >
+
+                <div class="nav-icon report">
+
+                    <i class="bi bi-bar-chart-line"></i>
+
+                </div>
+
+                <span>
+                    Reportes
+                </span>
+
+                <span class="nav-arrow">
+                    →
+                </span>
+
+            </a>
+
+        </div>
+
+        <!-- INFORMACIÓN -->
+
+        <div class="menu-section">
+
+            <div class="menu-label">
+
+                <span class="label-line"></span>
+
+                INFORMACIÓN
 
             </div>
 
+            <a
+                href="consultar.php"
+                class="nav-link"
+            >
 
-            <div class="col-md-4">
+                <div class="nav-icon info">
 
-                <a href="reportes.php" class="boton-accion">
+                    <i class="bi bi-info-circle"></i>
 
-                    <i class="bi bi-file-earmark-bar-graph"></i>
+                </div>
 
-                    Ver reportes
+                <span>
+                    Registros del día
+                </span>
 
-                </a>
+                <span class="nav-arrow">
+                    →
+                </span>
+
+            </a>
+
+        </div>
+
+    </nav>
+
+    <!-- PERFIL -->
+
+    <div class="sidebar-bottom">
+
+        <div class="profile-card">
+
+            <div class="profile-avatar">
+
+                <?= htmlspecialchars(
+                    $iniciales
+                ) ?>
 
             </div>
 
+            <div class="profile-info">
+
+                <strong>
+
+                    <?= htmlspecialchars(
+                        $nombreCompleto
+                    ) ?>
+
+                </strong>
+
+                <small>
+                    RESTAURANTE
+                </small>
+
+            </div>
+
+            <div class="profile-status">
+                ●
+            </div>
+
+        </div>
+
+        <a
+            href="../auth/logout.php"
+            class="logout"
+
+            onclick="
+                return confirm(
+                    '¿Deseas cerrar tu sesión?'
+                );
+            "
+        >
+
+            <div class="logout-icon">
+
+                <i class="bi bi-box-arrow-left"></i>
+
+            </div>
+
+            <span>
+                Cerrar sesión
+            </span>
+
+        </a>
+
+    </div>
+
+</aside>
+
+<!-- =====================================================
+     MAIN
+====================================================== -->
+
+<main class="main">
+
+<!-- TOPBAR -->
+
+<header class="topbar">
+
+    <div class="page-info">
+
+        <div class="page-indicator"></div>
+
+        <div class="page-title">
+
+            <h1>
+                Panel del restaurante
+            </h1>
+
+            <p>
+                Control de asistencia al restaurante
+            </p>
 
         </div>
 
     </div>
 
+    <div class="clock-box">
 
+        <div class="clock-icon">
 
-    <!-- INFORMACIÓN -->
+            <i class="bi bi-clock"></i>
 
-    <div class="informacion">
+        </div>
 
-        <h4>
+        <div>
 
-            <i class="bi bi-info-circle"></i>
+            <div
+                class="clock-time"
+                id="reloj"
+            >
 
-            Información
+                <?= $horaActual ?>
 
-        </h4>
+            </div>
 
+            <div class="clock-date">
 
-        <p class="text-muted mb-2">
+                <?= $fechaActual ?>
 
-            El restaurante utiliza el código QR del documento del estudiante
+            </div>
 
-            para registrar su asistencia.
+        </div>
 
-        </p>
+    </div>
 
+</header>
 
-        <p class="text-muted mb-2">
+<!-- BIENVENIDA -->
 
-            Cada estudiante puede registrar su asistencia al restaurante
+<section class="welcome">
 
-            <strong>una sola vez por día</strong>.
+    <div class="welcome-content">
 
-        </p>
+        <div class="welcome-tag">
 
+            <i class="bi bi-egg-fried"></i>
 
-        <p class="text-muted mb-0">
+            PANEL DE RESTAURANTE
 
-            Las asistencias quedan almacenadas en el sistema para
+        </div>
 
-            su posterior consulta y generación de reportes.
+        <h2>
+
+            ¡Hola,
+
+            <span>
+
+                <?= htmlspecialchars(
+                    $primerNombre
+                ) ?>
+
+            </span>!
+
+        </h2>
+
+        <p>
+
+            Gestiona de forma sencilla la asistencia
+            de los estudiantes al restaurante mediante
+            el código QR de su documento.
 
         </p>
 
     </div>
 
+    <!-- ILUSTRACIÓN -->
+
+    <div class="welcome-illustration">
+
+        <div class="illustration-glow"></div>
+
+        <div class="float-element float-one">
+
+            <i class="bi bi-egg-fried"></i>
+
+        </div>
+
+        <div class="float-element float-two">
+
+            <i class="bi bi-qr-code"></i>
+
+        </div>
+
+        <div class="float-element float-three">
+
+            <i class="bi bi-check-lg"></i>
+
+        </div>
+
+        <div class="illustration-platform"></div>
+
+        <div class="illustration-device">
+
+            <div class="device-screen">
+
+                <div class="qr-modern">
+
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                    <span></span>
+
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                    <span></span>
+
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                    <span></span>
+
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                    <span></span>
+
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                    <span></span>
+
+                </div>
+
+                <div class="device-line"></div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</section>
+
+<!-- RESUMEN -->
+
+<section class="summary-grid">
+
+    <!-- ESTUDIANTES -->
+
+    <div class="summary-item">
+
+        <div class="summary-icon">
+
+            <i class="bi bi-people-fill"></i>
+
+        </div>
+
+        <div class="summary-text">
+
+            <span>
+                Estudiantes activos
+            </span>
+
+            <strong>
+
+                <?= $totalEstudiantes ?>
+
+            </strong>
+
+        </div>
+
+    </div>
+
+    <!-- ASISTENCIAS -->
+
+    <div class="summary-item">
+
+        <div class="summary-icon">
+
+            <i class="bi bi-check-circle-fill"></i>
+
+        </div>
+
+        <div class="summary-text">
+
+            <span>
+                Asistencias de hoy
+            </span>
+
+            <strong>
+
+                <?= $totalHoy ?>
+
+            </strong>
+
+        </div>
+
+    </div>
+
+    <!-- FECHA -->
+
+    <div class="summary-item">
+
+        <div class="summary-icon">
+
+            <i class="bi bi-calendar3"></i>
+
+        </div>
+
+        <div class="summary-text">
+
+            <span>
+                Fecha actual
+            </span>
+
+            <strong
+                style="font-size:22px;"
+            >
+
+                <?= $fechaActual ?>
+
+            </strong>
+
+        </div>
+
+    </div>
+
+</section>
+
+<!-- ANALYTICS -->
+
+<section class="analytics-layout">
+
+    <!-- GRÁFICA -->
+
+    <div class="chart-card">
+
+        <div class="section-heading">
+
+            <div>
+
+                <h3>
+                    Asistencia del restaurante
+                </h3>
+
+                <p>
+                    Registros realizados durante los últimos 7 días
+                </p>
+
+            </div>
+
+            <div class="week-label">
+
+                <i class="bi bi-calendar-week"></i>
+
+                ÚLTIMOS 7 DÍAS
+
+            </div>
+
+        </div>
+
+        <div class="chart-area">
+
+            <?php foreach (
+                $grafica
+                as $dia
+            ): ?>
+
+                <?php
+
+                $altura = 0;
+
+                if (
+                    $totalEstudiantes > 0
+                ) {
+
+                    $altura =
+                        (
+                            $dia["total"]
+                            /
+                            $totalEstudiantes
+                        )
+                        * 100;
+
+                }
+
+                if (
+                    $dia["total"] > 0
+                    &&
+                    $altura < 5
+                ) {
+
+                    $altura = 5;
+
+                }
+
+                if (
+                    $altura > 100
+                ) {
+
+                    $altura = 100;
+
+                }
+
+                ?>
+
+                <div class="chart-column">
+
+                    <div class="chart-value">
+
+                        <?= $dia["total"] ?>
+
+                    </div>
+
+                    <div class="chart-bar-wrapper">
+
+                        <div
+                            class="chart-bar"
+                            style="
+                                height:
+                                <?= $altura ?>%;
+                            "
+                        ></div>
+
+                    </div>
+
+                    <div class="chart-day">
+
+                        <?= htmlspecialchars(
+                            $dia["dia"]
+                        ) ?>
+
+                    </div>
+
+                </div>
+
+            <?php endforeach; ?>
+
+        </div>
+
+    </div>
+
+    <!-- ACCIONES -->
+
+    <div class="today-card">
+
+        <h3>
+            Acciones rápidas
+        </h3>
+
+        <p>
+            Gestiona los registros del restaurante
+        </p>
+
+        <div class="quick-actions">
+
+            <a
+                href="asistencia.php"
+                class="quick-action qr"
+            >
+
+                <i class="bi bi-qr-code-scan"></i>
+
+                <span>
+                    Tomar asistencia
+                </span>
+
+            </a>
+
+            <a
+                href="consultar.php"
+                class="quick-action search"
+            >
+
+                <i class="bi bi-search"></i>
+
+                <span>
+                    Consultar
+                </span>
+
+            </a>
+
+            <a
+                href="reportes.php"
+                class="quick-action report"
+            >
+
+                <i class="bi bi-bar-chart-line"></i>
+
+                <span>
+                    Reportes
+                </span>
+
+            </a>
+
+        </div>
+
+    </div>
+
+</section>
+
+<!-- INFORMACIÓN -->
+
+<section class="info-card">
+
+    <h3>
+
+        <i class="bi bi-info-circle"></i>
+
+        Información del restaurante
+
+    </h3>
+
+    <p>
+
+        El restaurante utiliza el código QR asociado
+        al documento del estudiante para registrar
+        su asistencia.
+
+    </p>
+
+    <div class="info-box">
+
+        <i class="bi bi-check-circle-fill"></i>
+
+        Cada estudiante puede registrar su asistencia
+        al restaurante una sola vez por día.
+
+    </div>
+
+    <p>
+
+        Los registros quedan almacenados en el sistema
+        para facilitar su consulta y la generación
+        de reportes.
+
+    </p>
+
+</section>
 
 </main>
 
+</div>
 
+<script>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/js/bootstrap.bundle.min.js"></script>
+/* =========================================================
+   RELOJ EN TIEMPO REAL
+========================================================= */
 
+function actualizarReloj()
+{
+
+    const ahora =
+        new Date();
+
+    const horas =
+        String(
+            ahora.getHours()
+        ).padStart(
+            2,
+            "0"
+        );
+
+    const minutos =
+        String(
+            ahora.getMinutes()
+        ).padStart(
+            2,
+            "0"
+        );
+
+    const segundos =
+        String(
+            ahora.getSeconds()
+        ).padStart(
+            2,
+            "0"
+        );
+
+    const reloj =
+        document.getElementById(
+            "reloj"
+        );
+
+    if (reloj) {
+
+        reloj.textContent =
+            horas
+            + ":"
+            + minutos
+            + ":"
+            + segundos;
+
+    }
+
+}
+
+actualizarReloj();
+
+setInterval(
+    actualizarReloj,
+    1000
+);
+
+</script>
 
 </body>
 

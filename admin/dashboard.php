@@ -1,8 +1,9 @@
 <?php
+
 session_start();
 
 /* =========================================================
-   PROTECCIÓN DE SESIÓN
+   PROTECCIÓN DE SESIÓN Y ROL ADMINISTRADOR
 ========================================================= */
 
 if (!isset($_SESSION['id_usuario'])) {
@@ -10,6 +11,10 @@ if (!isset($_SESSION['id_usuario'])) {
     exit();
 }
 
+if (!isset($_SESSION['id_rol']) || (int)$_SESSION['id_rol'] !== 1) {
+    header("Location: ../login.php");
+    exit();
+}
 
 /* =========================================================
    CONEXIÓN
@@ -18,7 +23,6 @@ if (!isset($_SESSION['id_usuario'])) {
 require_once "../config/conexion.php";
 
 date_default_timezone_set('America/Bogota');
-
 
 /* =========================================================
    DATOS DEL USUARIO
@@ -47,16 +51,13 @@ if ($iniciales === '') {
     $iniciales = 'AS';
 }
 
-
 /* =========================================================
    FECHA Y HORA
 ========================================================= */
 
 $horaActual = date('H:i:s');
 $fechaActual = date('d/m/Y');
-
 $fechaHoy = date('Y-m-d');
-
 
 /* =========================================================
    SESIONES DE HOY
@@ -104,9 +105,7 @@ if ($stmtSesionesHoy) {
         $fechaHoy
     );
 
-    mysqli_stmt_execute(
-        $stmtSesionesHoy
-    );
+    mysqli_stmt_execute($stmtSesionesHoy);
 
     $resultadoSesionesHoy =
         mysqli_stmt_get_result(
@@ -126,9 +125,7 @@ if ($stmtSesionesHoy) {
     mysqli_stmt_close(
         $stmtSesionesHoy
     );
-
 }
-
 
 /* =========================================================
    ASISTENCIA DE LOS ÚLTIMOS 7 DÍAS
@@ -163,9 +160,7 @@ for ($i = 6; $i >= 0; $i--) {
         'dia' => $dias[$diaNombre] ?? $diaNombre,
         'total' => 0
     ];
-
 }
-
 
 /* =========================================================
    CONSULTAR ASISTENCIAS
@@ -230,7 +225,6 @@ if ($stmtGrafica) {
 
     }
 
-
     foreach ($grafica as &$diaGrafica) {
 
         if (
@@ -255,9 +249,7 @@ if ($stmtGrafica) {
     mysqli_stmt_close(
         $stmtGrafica
     );
-
 }
-
 
 /* =========================================================
    TOTAL ASISTENCIAS DE HOY
@@ -312,9 +304,7 @@ if ($stmtTotalHoy) {
     mysqli_stmt_close(
         $stmtTotalHoy
     );
-
 }
-
 
 /* =========================================================
    ESTUDIANTES ACTIVOS
@@ -345,9 +335,7 @@ if ($resultadoEstudiantes) {
         (int)(
             $fila['total'] ?? 0
         );
-
 }
-
 
 /* =========================================================
    DOCENTES ACTIVOS
@@ -379,9 +367,7 @@ if ($resultadoDocentes) {
         (int)(
             $fila['total'] ?? 0
         );
-
 }
-
 
 /* =========================================================
    CURSOS ACTIVOS
@@ -412,13 +398,11 @@ if ($resultadoCursos) {
         (int)(
             $fila['total'] ?? 0
         );
-
 }
 
 ?>
 
 <!DOCTYPE html>
-
 <html lang="es">
 
 <head>
@@ -434,59 +418,36 @@ if ($resultadoCursos) {
     Asistencia QR | Dashboard
 </title>
 
-
 <link
     rel="stylesheet"
     href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css"
 >
 
-
 <style>
-
-/* =========================================================
-   VARIABLES
-========================================================= */
 
 :root{
 
     --aqua:#18d8ce;
     --aqua-dark:#087d92;
-
     --blue:#69b8d5;
-
     --mint:#42cda1;
-
     --purple:#8579d2;
-
     --coral:#e99a78;
-
     --text:#3e6f7d;
-
     --dark:#20596d;
-
     --muted:#7897a0;
 
 }
 
-
-/* =========================================================
-   RESET
-========================================================= */
-
 *{
-
     margin:0;
     padding:0;
-
     box-sizing:border-box;
-
 }
-
 
 body{
 
     min-height:100vh;
-
     overflow-x:hidden;
 
     font-family:
@@ -519,15 +480,9 @@ body{
 
 }
 
-
-/* =========================================================
-   APP
-========================================================= */
-
 .app{
 
     position:relative;
-
     z-index:1;
 
     display:flex;
@@ -540,22 +495,15 @@ body{
 
 }
 
-
-/* =========================================================
-   SIDEBAR
-========================================================= */
-
 .sidebar{
 
     width:285px;
-
     flex-shrink:0;
 
     min-height:
         calc(100vh - 36px);
 
     display:flex;
-
     flex-direction:column;
 
     padding:
@@ -582,11 +530,9 @@ body{
 
 }
 
-
 .sidebar-header{
 
     display:flex;
-
     align-items:center;
 
     gap:13px;
@@ -595,7 +541,6 @@ body{
         3px 9px 20px;
 
 }
-
 
 .logo-container{
 
@@ -626,7 +571,6 @@ body{
 
 }
 
-
 .logo-container img{
 
     width:100%;
@@ -635,7 +579,6 @@ body{
     object-fit:contain;
 
 }
-
 
 .sidebar-title strong{
 
@@ -648,7 +591,6 @@ body{
     font-weight:950;
 
 }
-
 
 .sidebar-title small{
 
@@ -664,7 +606,6 @@ body{
 
 }
 
-
 .sidebar-line{
 
     position:relative;
@@ -678,7 +619,6 @@ body{
         rgba(50,111,130,.09);
 
 }
-
 
 .sidebar-line span{
 
@@ -701,20 +641,13 @@ body{
 
 }
 
-
 .navigation{
-
     flex:1;
-
 }
-
 
 .menu-section{
-
     margin-bottom:12px;
-
 }
-
 
 .menu-label{
 
@@ -739,7 +672,6 @@ body{
 
 }
 
-
 .label-line{
 
     width:17px;
@@ -750,7 +682,6 @@ body{
     background:#b9d7db;
 
 }
-
 
 .nav-link{
 
@@ -785,7 +716,6 @@ body{
 
 }
 
-
 .nav-link:hover{
 
     color:#075273;
@@ -797,7 +727,6 @@ body{
         translateX(4px);
 
 }
-
 
 .nav-link.active{
 
@@ -811,7 +740,6 @@ body{
         );
 
 }
-
 
 .nav-link.active::before{
 
@@ -838,7 +766,6 @@ body{
 
 }
 
-
 .nav-icon{
 
     width:40px;
@@ -862,7 +789,6 @@ body{
 
 }
 
-
 .nav-icon.academic{
 
     color:#766cc8;
@@ -871,7 +797,6 @@ body{
         rgba(133,121,210,.10);
 
 }
-
 
 .nav-icon.people{
 
@@ -882,7 +807,6 @@ body{
 
 }
 
-
 .nav-icon.qr-icon{
 
     color:#078395;
@@ -891,7 +815,6 @@ body{
         rgba(24,216,206,.12);
 
 }
-
 
 .nav-icon.reports{
 
@@ -903,20 +826,13 @@ body{
 }
 
 .nav-icon.restaurant{
+
     color:#d99a24;
-    background:rgba(245,190,70,.14);
-}
-
-
-.nav-icon.audit{
-
-    color:#7569c2;
 
     background:
-        rgba(133,121,210,.11);
+        rgba(245,190,70,.14);
 
 }
-
 
 .nav-arrow{
 
@@ -930,17 +846,9 @@ body{
 
 }
 
-
 .nav-link:hover .nav-arrow{
-
     opacity:1;
-
 }
-
-
-/* =========================================================
-   PERFIL
-========================================================= */
 
 .sidebar-bottom{
 
@@ -949,7 +857,6 @@ body{
     padding-top:10px;
 
 }
-
 
 .profile-card{
 
@@ -972,7 +879,6 @@ body{
         rgba(255,255,255,.85);
 
 }
-
 
 .profile-avatar{
 
@@ -1003,15 +909,12 @@ body{
 
 }
 
-
 .profile-info{
 
     flex:1;
-
     min-width:0;
 
 }
-
 
 .profile-info strong{
 
@@ -1031,7 +934,6 @@ body{
 
 }
 
-
 .profile-info small{
 
     display:block;
@@ -1044,7 +946,6 @@ body{
 
 }
 
-
 .profile-status{
 
     color:#27b884;
@@ -1052,7 +953,6 @@ body{
     font-size:11px;
 
 }
-
 
 .logout{
 
@@ -1079,7 +979,6 @@ body{
 
 }
 
-
 .logout:hover{
 
     color:#a4535c;
@@ -1090,7 +989,6 @@ body{
     border-radius:13px;
 
 }
-
 
 .logout-icon{
 
@@ -1109,11 +1007,6 @@ body{
 
 }
 
-
-/* =========================================================
-   MAIN
-========================================================= */
-
 .main{
 
     flex:1;
@@ -1127,11 +1020,6 @@ body{
     gap:18px;
 
 }
-
-
-/* =========================================================
-   TOPBAR
-========================================================= */
 
 .topbar{
 
@@ -1165,7 +1053,6 @@ body{
 
 }
 
-
 .page-info{
 
     display:flex;
@@ -1175,7 +1062,6 @@ body{
     gap:13px;
 
 }
-
 
 .page-indicator{
 
@@ -1193,7 +1079,6 @@ body{
 
 }
 
-
 .page-title h1{
 
     color:#15576c;
@@ -1203,7 +1088,6 @@ body{
     font-weight:950;
 
 }
-
 
 .page-title p{
 
@@ -1216,11 +1100,6 @@ body{
     font-weight:650;
 
 }
-
-
-/* =========================================================
-   RELOJ
-========================================================= */
 
 .clock-box{
 
@@ -1244,7 +1123,6 @@ body{
 
 }
 
-
 .clock-icon{
 
     width:38px;
@@ -1266,7 +1144,6 @@ body{
 
 }
 
-
 .clock-time{
 
     color:#155b70;
@@ -1279,7 +1156,6 @@ body{
 
 }
 
-
 .clock-date{
 
     margin-top:2px;
@@ -1291,11 +1167,6 @@ body{
     font-weight:750;
 
 }
-
-
-/* =========================================================
-   WELCOME
-========================================================= */
 
 .welcome{
 
@@ -1348,7 +1219,6 @@ body{
 
 }
 
-
 .welcome::before{
 
     content:"";
@@ -1369,7 +1239,6 @@ body{
 
 }
 
-
 .welcome::after{
 
     content:"";
@@ -1389,7 +1258,6 @@ body{
 
 }
 
-
 .welcome-content{
 
     position:relative;
@@ -1399,7 +1267,6 @@ body{
     max-width:720px;
 
 }
-
 
 .welcome-tag{
 
@@ -1429,7 +1296,6 @@ body{
 
 }
 
-
 .welcome h2{
 
     color:#15576c;
@@ -1442,13 +1308,9 @@ body{
 
 }
 
-
 .welcome h2 span{
-
     color:#0a9f9b;
-
 }
-
 
 .welcome p{
 
@@ -1466,11 +1328,6 @@ body{
 
 }
 
-
-/* =========================================================
-   NUEVA ILUSTRACIÓN DINÁMICA
-========================================================= */
-
 .welcome-illustration{
 
     position:relative;
@@ -1483,7 +1340,6 @@ body{
     flex-shrink:0;
 
 }
-
 
 .illustration-glow{
 
@@ -1509,7 +1365,6 @@ body{
 
 }
 
-
 @keyframes glowPulse{
 
     0%,100%{
@@ -1523,9 +1378,6 @@ body{
     }
 
 }
-
-
-/* plataforma */
 
 .illustration-platform{
 
@@ -1554,9 +1406,6 @@ body{
         rgba(55,113,129,.12);
 
 }
-
-
-/* dispositivo */
 
 .illustration-device{
 
@@ -1595,7 +1444,6 @@ body{
 
 }
 
-
 @keyframes deviceFloat{
 
     0%,100%{
@@ -1611,7 +1459,6 @@ body{
     }
 
 }
-
 
 .device-screen{
 
@@ -1638,7 +1485,6 @@ body{
 
 }
 
-
 .qr-modern{
 
     width:61px;
@@ -1663,7 +1509,6 @@ body{
 
 }
 
-
 .qr-modern span{
 
     border-radius:2px;
@@ -1672,33 +1517,17 @@ body{
 
 }
 
-
-.qr-modern span:nth-child(
-    2
-),
-.qr-modern span:nth-child(
-    5
-),
-.qr-modern span:nth-child(
-    9
-),
-.qr-modern span:nth-child(
-    12
-),
-.qr-modern span:nth-child(
-    17
-),
-.qr-modern span:nth-child(
-    21
-),
-.qr-modern span:nth-child(
-    24
-){
+.qr-modern span:nth-child(2),
+.qr-modern span:nth-child(5),
+.qr-modern span:nth-child(9),
+.qr-modern span:nth-child(12),
+.qr-modern span:nth-child(17),
+.qr-modern span:nth-child(21),
+.qr-modern span:nth-child(24){
 
     background:#18cfc6;
 
 }
-
 
 .device-line{
 
@@ -1710,9 +1539,6 @@ body{
     background:#b9dfe0;
 
 }
-
-
-/* pequeños elementos */
 
 .float-element{
 
@@ -1734,13 +1560,9 @@ body{
 
 }
 
-
 .float-element i{
-
     font-size:18px;
-
 }
-
 
 .float-one{
 
@@ -1761,7 +1583,6 @@ body{
 
 }
 
-
 .float-two{
 
     right:0;
@@ -1779,11 +1600,9 @@ body{
             #6b60b8
         );
 
-    animation-delay:
-        .7s;
+    animation-delay:.7s;
 
 }
-
 
 .float-three{
 
@@ -1798,30 +1617,21 @@ body{
     background:
         rgba(255,255,255,.92);
 
-    animation-delay:
-        1.2s;
+    animation-delay:1.2s;
 
 }
-
 
 @keyframes elementFloat{
 
     0%,100%{
-        transform:
-            translateY(0);
+        transform:translateY(0);
     }
 
     50%{
-        transform:
-            translateY(-8px);
+        transform:translateY(-8px);
     }
 
 }
-
-
-/* =========================================================
-   RESUMEN GRANDE
-========================================================= */
 
 .summary-grid{
 
@@ -1833,7 +1643,6 @@ body{
     gap:16px;
 
 }
-
 
 .summary-item{
 
@@ -1871,7 +1680,6 @@ body{
 
 }
 
-
 .summary-item::after{
 
     content:"";
@@ -1891,7 +1699,6 @@ body{
 
 }
 
-
 .summary-item:hover{
 
     transform:
@@ -1902,7 +1709,6 @@ body{
         rgba(55,113,129,.10);
 
 }
-
 
 .summary-icon{
 
@@ -1927,7 +1733,6 @@ body{
 
 }
 
-
 .summary-item:nth-child(2)
 .summary-icon{
 
@@ -1937,7 +1742,6 @@ body{
         rgba(105,184,213,.12);
 
 }
-
 
 .summary-item:nth-child(3)
 .summary-icon{
@@ -1949,7 +1753,6 @@ body{
 
 }
 
-
 .summary-item:nth-child(4)
 .summary-icon{
 
@@ -1959,7 +1762,6 @@ body{
         rgba(66,205,161,.10);
 
 }
-
 
 .summary-text span{
 
@@ -1972,7 +1774,6 @@ body{
     font-weight:800;
 
 }
-
 
 .summary-text strong{
 
@@ -1990,11 +1791,6 @@ body{
 
 }
 
-
-/* =========================================================
-   ANALYTICS
-========================================================= */
-
 .analytics-layout{
 
     display:grid;
@@ -2006,11 +1802,6 @@ body{
     gap:16px;
 
 }
-
-
-/* =========================================================
-   GRÁFICA
-========================================================= */
 
 .chart-card{
 
@@ -2032,7 +1823,6 @@ body{
 
 }
 
-
 .section-heading{
 
     display:flex;
@@ -2047,7 +1837,6 @@ body{
 
 }
 
-
 .section-heading h3{
 
     color:#416f7e;
@@ -2057,7 +1846,6 @@ body{
     font-weight:950;
 
 }
-
 
 .section-heading p{
 
@@ -2070,7 +1858,6 @@ body{
     font-weight:650;
 
 }
-
 
 .week-label{
 
@@ -2096,7 +1883,6 @@ body{
 
 }
 
-
 .chart-area{
 
     height:220px;
@@ -2111,7 +1897,6 @@ body{
         10px 5px 0;
 
 }
-
 
 .chart-column{
 
@@ -2131,7 +1916,6 @@ body{
 
 }
 
-
 .chart-value{
 
     min-height:18px;
@@ -2144,21 +1928,17 @@ body{
 
 }
 
-
 .chart-bar-wrapper{
 
     width:100%;
-
     height:170px;
 
     display:flex;
 
     align-items:flex-end;
-
     justify-content:center;
 
 }
-
 
 .chart-bar{
 
@@ -2187,14 +1967,12 @@ body{
 
 }
 
-
 .chart-bar:hover{
 
     transform:
         translateY(-5px);
 
 }
-
 
 .chart-day{
 
@@ -2205,11 +1983,6 @@ body{
     font-weight:850;
 
 }
-
-
-/* =========================================================
-   SESIONES
-========================================================= */
 
 .today-card{
 
@@ -2235,7 +2008,6 @@ body{
 
 }
 
-
 .today-card h3{
 
     color:#416f7e;
@@ -2245,7 +2017,6 @@ body{
     font-weight:950;
 
 }
-
 
 .today-card > p{
 
@@ -2259,7 +2030,6 @@ body{
 
 }
 
-
 .today-list{
 
     display:flex;
@@ -2271,7 +2041,6 @@ body{
     margin-top:19px;
 
 }
-
 
 .today-session{
 
@@ -2295,7 +2064,6 @@ body{
 
 }
 
-
 .today-time{
 
     width:52px;
@@ -2310,15 +2078,12 @@ body{
 
 }
 
-
 .today-session-info{
 
     min-width:0;
-
     flex:1;
 
 }
-
 
 .today-session-info strong{
 
@@ -2337,7 +2102,6 @@ body{
     text-overflow:ellipsis;
 
 }
-
 
 .today-session-info small{
 
@@ -2359,7 +2123,6 @@ body{
 
 }
 
-
 .today-status{
 
     width:8px;
@@ -2377,7 +2140,6 @@ body{
 
 }
 
-
 .no-sessions{
 
     padding:
@@ -2393,7 +2155,6 @@ body{
 
 }
 
-
 .no-sessions i{
 
     display:block;
@@ -2406,62 +2167,41 @@ body{
 
 }
 
-
-/* =========================================================
-   RESPONSIVE
-========================================================= */
-
 @media(max-width:1200px){
 
     .sidebar{
-
         width:255px;
-
     }
 
     .summary-grid{
-
         grid-template-columns:
             repeat(2,1fr);
-
     }
 
 }
-
 
 @media(max-width:1000px){
 
     .analytics-layout{
-
         grid-template-columns:1fr;
-
     }
 
     .welcome-illustration{
-
         width:210px;
-
     }
 
 }
 
-
 @media(max-width:900px){
 
     .app{
-
         flex-direction:column;
-
         padding:10px;
-
     }
 
     .sidebar{
-
         width:100%;
-
         min-height:auto;
-
     }
 
     .navigation{
@@ -2474,51 +2214,36 @@ body{
     }
 
     .menu-label{
-
         grid-column:
             1 / -1;
-
     }
 
     .sidebar-bottom{
-
         display:none;
-
     }
 
 }
-
 
 @media(max-width:700px){
 
     .summary-grid{
-
-        grid-template-columns:
-            1fr;
-
+        grid-template-columns:1fr;
     }
 
     .welcome{
-
         padding:
             25px 22px;
-
     }
 
     .welcome h2{
-
         font-size:26px;
-
     }
 
     .welcome-illustration{
-
         display:none;
-
     }
 
 }
-
 
 @media(max-width:650px){
 
@@ -2531,33 +2256,23 @@ body{
     }
 
     .clock-box{
-
         width:100%;
-
     }
 
     .navigation{
-
         grid-template-columns:1fr;
-
     }
 
     .menu-label{
-
         grid-column:auto;
-
     }
 
     .chart-area{
-
         gap:6px;
-
     }
 
     .chart-bar{
-
         width:75%;
-
     }
 
 }
@@ -2566,26 +2281,18 @@ body{
 
 </head>
 
-
 <body>
-
 
 <div class="app">
 
-
-<!-- =====================================================
-     SIDEBAR
-====================================================== -->
-
 <aside class="sidebar">
-
 
     <div class="sidebar-header">
 
         <div class="logo-container">
 
             <img
-                src="Logo.png"
+                src="../Logo.png"
                 alt="Logo Asistencia QR"
             >
 
@@ -2605,25 +2312,18 @@ body{
 
     </div>
 
-
     <div class="sidebar-line">
         <span></span>
     </div>
 
-
     <nav class="navigation">
-
 
         <div class="menu-section">
 
             <div class="menu-label">
-
                 <span class="label-line"></span>
-
                 NAVEGACIÓN
-
             </div>
-
 
             <a
                 href="dashboard.php"
@@ -2642,7 +2342,6 @@ body{
 
         </div>
 
-
         <div class="menu-section">
 
             <div class="menu-label">
@@ -2652,7 +2351,6 @@ body{
                 GESTIÓN ACADÉMICA
 
             </div>
-
 
             <a
                 href="curso_estudiantes.php"
@@ -2671,7 +2369,6 @@ body{
 
         </div>
 
-
         <div class="menu-section">
 
             <div class="menu-label">
@@ -2681,7 +2378,6 @@ body{
                 PERSONAS
 
             </div>
-
 
             <a
                 href="docentes.php"
@@ -2697,7 +2393,6 @@ body{
                 <span class="nav-arrow">→</span>
 
             </a>
-
 
             <a
                 href="usuarios.php"
@@ -2716,7 +2411,6 @@ body{
 
         </div>
 
-
         <div class="menu-section">
 
             <div class="menu-label">
@@ -2726,7 +2420,6 @@ body{
                 CONTROL
 
             </div>
-
 
             <a
                 href="asistencia.php"
@@ -2743,7 +2436,6 @@ body{
 
             </a>
 
-
             <a
                 href="restaurante.php"
                 class="nav-link"
@@ -2758,7 +2450,6 @@ body{
                 <span class="nav-arrow">→</span>
 
             </a>
-
 
             <a
                 href="reportes.php"
@@ -2779,20 +2470,15 @@ body{
 
     </nav>
 
-
     <div class="sidebar-bottom">
-
 
         <div class="profile-card">
 
             <div class="profile-avatar">
 
-                <?= htmlspecialchars(
-                    $iniciales
-                ) ?>
+                <?= htmlspecialchars($iniciales) ?>
 
             </div>
-
 
             <div class="profile-info">
 
@@ -2804,20 +2490,17 @@ body{
 
                 </strong>
 
-
                 <small>
                     ADMINISTRADOR
                 </small>
 
             </div>
 
-
             <div class="profile-status">
                 ●
             </div>
 
         </div>
-
 
         <a
             href="../auth/logout.php"
@@ -2846,25 +2529,13 @@ body{
 
 </aside>
 
-
-<!-- =====================================================
-     MAIN
-====================================================== -->
-
 <main class="main">
 
-
-<!-- =====================================================
-     TOPBAR
-====================================================== -->
-
 <header class="topbar">
-
 
     <div class="page-info">
 
         <div class="page-indicator"></div>
-
 
         <div class="page-title">
 
@@ -2880,7 +2551,6 @@ body{
 
     </div>
 
-
     <div class="clock-box">
 
         <div class="clock-icon">
@@ -2888,7 +2558,6 @@ body{
             <i class="bi bi-clock"></i>
 
         </div>
-
 
         <div>
 
@@ -2900,7 +2569,6 @@ body{
                 <?= $horaActual ?>
 
             </div>
-
 
             <div class="clock-date">
 
@@ -2914,16 +2582,9 @@ body{
 
 </header>
 
-
-<!-- =====================================================
-     BIENVENIDA
-====================================================== -->
-
 <section class="welcome">
 
-
     <div class="welcome-content">
-
 
         <div class="welcome-tag">
 
@@ -2932,7 +2593,6 @@ body{
             PANEL DE ADMINISTRACIÓN
 
         </div>
-
 
         <h2>
 
@@ -2946,7 +2606,6 @@ body{
 
         </h2>
 
-
         <p>
 
             Supervisa desde un solo lugar la actividad
@@ -2957,46 +2616,27 @@ body{
 
     </div>
 
-
-    <!-- =================================================
-         ILUSTRACIÓN DINÁMICA
-    ================================================== -->
-
     <div class="welcome-illustration">
-
 
         <div class="illustration-glow"></div>
 
-
         <div class="float-element float-one">
-
             <i class="bi bi-mortarboard-fill"></i>
-
         </div>
-
 
         <div class="float-element float-two">
-
             <i class="bi bi-stars"></i>
-
         </div>
-
 
         <div class="float-element float-three">
-
             <i class="bi bi-check-lg"></i>
-
         </div>
-
 
         <div class="illustration-platform"></div>
 
-
         <div class="illustration-device">
 
-
             <div class="device-screen">
-
 
                 <div class="qr-modern">
 
@@ -3032,39 +2672,23 @@ body{
 
                 </div>
 
-
                 <div class="device-line"></div>
-
 
             </div>
 
-
         </div>
-
 
     </div>
 
 </section>
 
-
-<!-- =====================================================
-     RESUMEN GENERAL
-====================================================== -->
-
 <section class="summary-grid">
-
-
-    <!-- ESTUDIANTES -->
 
     <div class="summary-item">
 
-
         <div class="summary-icon">
-
             <i class="bi bi-people-fill"></i>
-
         </div>
-
 
         <div class="summary-text">
 
@@ -3078,21 +2702,13 @@ body{
 
         </div>
 
-
     </div>
-
-
-    <!-- DOCENTES -->
 
     <div class="summary-item">
 
-
         <div class="summary-icon">
-
             <i class="bi bi-person-workspace"></i>
-
         </div>
-
 
         <div class="summary-text">
 
@@ -3106,21 +2722,13 @@ body{
 
         </div>
 
-
     </div>
-
-
-    <!-- CURSOS -->
 
     <div class="summary-item">
 
-
         <div class="summary-icon">
-
             <i class="bi bi-mortarboard-fill"></i>
-
         </div>
-
 
         <div class="summary-text">
 
@@ -3134,21 +2742,13 @@ body{
 
         </div>
 
-
     </div>
-
-
-    <!-- ASISTENCIAS -->
 
     <div class="summary-item">
 
-
         <div class="summary-icon">
-
             <i class="bi bi-person-check-fill"></i>
-
         </div>
-
 
         <div class="summary-text">
 
@@ -3162,53 +2762,112 @@ body{
 
         </div>
 
-
     </div>
-
 
 </section>
 
-    <!-- =================================================
-         SESIONES DE HOY
-    ================================================== -->
+<section class="analytics-layout">
+
+    <div class="chart-card">
+
+        <div class="section-heading">
+
+            <div>
+
+                <h3>
+                    Asistencia de los últimos 7 días
+                </h3>
+
+                <p>
+                    Registros de asistencia por día
+                </p>
+
+            </div>
+
+            <div class="week-label">
+
+                <i class="bi bi-calendar3"></i>
+
+                Últimos 7 días
+
+            </div>
+
+        </div>
+
+        <div class="chart-area">
+
+            <?php
+
+            $maxGrafica = 1;
+
+            foreach ($grafica as $dia) {
+
+                if ($dia['total'] > $maxGrafica) {
+                    $maxGrafica = $dia['total'];
+                }
+
+            }
+
+            foreach ($grafica as $dia):
+
+                $altura = ($dia['total'] / $maxGrafica) * 100;
+
+            ?>
+
+                <div class="chart-column">
+
+                    <div class="chart-value">
+                        <?= $dia['total'] ?>
+                    </div>
+
+                    <div class="chart-bar-wrapper">
+
+                        <div
+                            class="chart-bar"
+                            style="height:<?= max(7, $altura) ?>%;"
+                            title="<?= $dia['dia'] ?>: <?= $dia['total'] ?> asistencias"
+                        ></div>
+
+                    </div>
+
+                    <div class="chart-day">
+                        <?= htmlspecialchars($dia['dia']) ?>
+                    </div>
+
+                </div>
+
+            <?php endforeach; ?>
+
+        </div>
+
+    </div>
 
     <div class="today-card">
-
 
         <h3>
             Sesiones de hoy
         </h3>
 
-
         <p>
             Actividad académica programada
         </p>
 
-
         <div class="today-list">
 
-
-            <?php if (
-                count($sesionesHoy) > 0
-            ): ?>
-
+            <?php if (count($sesionesHoy) > 0): ?>
 
                 <?php foreach (
                     $sesionesHoy
                     as $sesion
                 ): ?>
 
-
                     <div class="today-session">
-
 
                         <div class="today-time">
 
                             <?= htmlspecialchars(
                                 substr(
-                                    $sesion[
-                                        'hora_inicio'
-                                    ],
+                                    $sesion['hora_inicio'],
                                     0,
                                     5
                                 )
@@ -3216,80 +2875,57 @@ body{
 
                         </div>
 
-
                         <div class="today-session-info">
-
 
                             <strong>
 
                                 <?= htmlspecialchars(
-                                    $sesion[
-                                        'nombre_curso'
-                                    ]
+                                    $sesion['nombre_curso']
                                 ) ?>
 
                             </strong>
-
 
                             <small>
 
                                 <?= htmlspecialchars(
                                     trim(
-                                        $sesion[
-                                            'docente'
-                                        ]
+                                        $sesion['docente']
                                     )
-                                    ?:
-                                    'Docente no asignado'
+                                    ?: 'Docente no asignado'
                                 ) ?>
 
                             </small>
 
-
                         </div>
-
 
                         <div class="today-status"></div>
 
-
                     </div>
-
 
                 <?php endforeach; ?>
 
-
             <?php else: ?>
-
 
                 <div class="no-sessions">
 
-
                     <i class="bi bi-calendar2-check"></i>
-
 
                     No hay sesiones registradas
                     para hoy.
 
-
                 </div>
-
 
             <?php endif; ?>
 
-
         </div>
-
 
     </div>
 
-
 </section>
-
 
 </main>
 
 </div>
-
 
 <script>
 
@@ -3300,9 +2936,7 @@ body{
 function actualizarReloj()
 {
 
-    const ahora =
-        new Date();
-
+    const ahora = new Date();
 
     const horas =
         String(
@@ -3312,7 +2946,6 @@ function actualizarReloj()
             '0'
         );
 
-
     const minutos =
         String(
             ahora.getMinutes()
@@ -3320,7 +2953,6 @@ function actualizarReloj()
             2,
             '0'
         );
-
 
     const segundos =
         String(
@@ -3330,12 +2962,10 @@ function actualizarReloj()
             '0'
         );
 
-
     const reloj =
         document.getElementById(
             'reloj'
         );
-
 
     if (reloj) {
 
@@ -3350,9 +2980,7 @@ function actualizarReloj()
 
 }
 
-
 actualizarReloj();
-
 
 setInterval(
     actualizarReloj,
@@ -3360,7 +2988,6 @@ setInterval(
 );
 
 </script>
-
 
 </body>
 

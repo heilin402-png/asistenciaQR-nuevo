@@ -1,8 +1,9 @@
 <?php
+
 session_start();
 
 /* =========================================================
-   PROTECCIÓN
+   PROTECCIÓN DE SESIÓN Y ROL ADMINISTRADOR
 ========================================================= */
 
 if (!isset($_SESSION['id_usuario'])) {
@@ -10,39 +11,72 @@ if (!isset($_SESSION['id_usuario'])) {
     exit();
 }
 
+if (
+    !isset($_SESSION['id_rol']) ||
+    (int)$_SESSION['id_rol'] !== 1
+) {
+    header("Location: ../login.php");
+    exit();
+}
+
+/* =========================================================
+   CONEXIÓN
+========================================================= */
+
 require_once "../config/conexion.php";
 
 date_default_timezone_set('America/Bogota');
-
 
 /* =========================================================
    DATOS DEL USUARIO
 ========================================================= */
 
-$nombreUsuario = $_SESSION['nombre'] ?? 'Administrador';
+$nombreUsuario =
+    $_SESSION['nombre'] ??
+    'Administrador Sistema';
 
-$partesNombre = explode(' ', trim($nombreUsuario));
-
-$primerNombre = $partesNombre[0] ?? 'Administrador';
-
-$inicial = strtoupper(
-    substr($primerNombre, 0, 1)
+$partesNombre = preg_split(
+    '/\s+/',
+    trim($nombreUsuario)
 );
 
+$primerNombre =
+    $partesNombre[0] ??
+    'Administrador';
+
+$iniciales = '';
+
+foreach (
+    array_slice(
+        $partesNombre,
+        0,
+        2
+    ) as $parte
+) {
+
+    $iniciales .= strtoupper(
+        substr(
+            $parte,
+            0,
+            1
+        )
+    );
+}
+
+if ($iniciales === '') {
+    $iniciales = 'AS';
+}
 
 /* =========================================================
-   FILTROS
+   FECHA Y HORA
 ========================================================= */
 
-$fechaFiltro = $_GET['fecha'] ?? '';
-
-$estadoFiltro = $_GET['estado'] ?? '';
-
-$busqueda = trim($_GET['busqueda'] ?? '');
-
+$horaActual = date('H:i:s');
+$fechaActual = date('d/m/Y');
+$fechaHoy = date('Y-m-d');
 
 /* =========================================================
-   FUNCIÓN SEGURA
+   FUNCIÓN NÚMEROS
 ========================================================= */
 
 function formatoNumero($numero)
@@ -55,7 +89,6 @@ function formatoNumero($numero)
     );
 }
 
-
 /* =========================================================
    CONTADORES
 ========================================================= */
@@ -65,53 +98,83 @@ $totalHoy = 0;
 $totalRegistrados = 0;
 $totalNoRegistrados = 0;
 
-
-/* TOTAL */
+/* =========================================================
+   TOTAL REGISTROS
+========================================================= */
 
 $sqlTotal = "
     SELECT COUNT(*) AS total
     FROM asistencia_restaurante
 ";
 
-$resultado = mysqli_query(
+$resultadoTotal = mysqli_query(
     $conexion,
     $sqlTotal
 );
 
-if ($resultado) {
+if ($resultadoTotal) {
 
-    $fila = mysqli_fetch_assoc($resultado);
+    $filaTotal =
+        mysqli_fetch_assoc(
+            $resultadoTotal
+        );
 
     $totalRegistros =
-        (int)($fila['total'] ?? 0);
+        (int)(
+            $filaTotal['total'] ?? 0
+        );
 }
 
-
-/* HOY */
-
-$hoy = date('Y-m-d');
+/* =========================================================
+   REGISTROS DE HOY
+========================================================= */
 
 $sqlHoy = "
     SELECT COUNT(*) AS total
     FROM asistencia_restaurante
-    WHERE fecha = '$hoy'
+    WHERE fecha = ?
 ";
 
-$resultado = mysqli_query(
+$stmtHoy = mysqli_prepare(
     $conexion,
     $sqlHoy
 );
 
-if ($resultado) {
+if ($stmtHoy) {
 
-    $fila = mysqli_fetch_assoc($resultado);
+    mysqli_stmt_bind_param(
+        $stmtHoy,
+        "s",
+        $fechaHoy
+    );
+
+    mysqli_stmt_execute(
+        $stmtHoy
+    );
+
+    $resultadoHoy =
+        mysqli_stmt_get_result(
+            $stmtHoy
+        );
+
+    $filaHoy =
+        mysqli_fetch_assoc(
+            $resultadoHoy
+        );
 
     $totalHoy =
-        (int)($fila['total'] ?? 0);
+        (int)(
+            $filaHoy['total'] ?? 0
+        );
+
+    mysqli_stmt_close(
+        $stmtHoy
+    );
 }
 
-
-/* REGISTRADOS */
+/* =========================================================
+   REGISTRADOS
+========================================================= */
 
 $sqlRegistrados = "
     SELECT COUNT(*) AS total
@@ -119,21 +182,28 @@ $sqlRegistrados = "
     WHERE estado = 'REGISTRADO'
 ";
 
-$resultado = mysqli_query(
-    $conexion,
-    $sqlRegistrados
-);
+$resultadoRegistrados =
+    mysqli_query(
+        $conexion,
+        $sqlRegistrados
+    );
 
-if ($resultado) {
+if ($resultadoRegistrados) {
 
-    $fila = mysqli_fetch_assoc($resultado);
+    $filaRegistrados =
+        mysqli_fetch_assoc(
+            $resultadoRegistrados
+        );
 
     $totalRegistrados =
-        (int)($fila['total'] ?? 0);
+        (int)(
+            $filaRegistrados['total'] ?? 0
+        );
 }
 
-
-/* NO REGISTRADOS */
+/* =========================================================
+   NO REGISTRADOS
+========================================================= */
 
 $sqlNoRegistrados = "
     SELECT COUNT(*) AS total
@@ -141,174 +211,242 @@ $sqlNoRegistrados = "
     WHERE estado = 'NO_REGISTRADO'
 ";
 
-$resultado = mysqli_query(
-    $conexion,
-    $sqlNoRegistrados
-);
+$resultadoNoRegistrados =
+    mysqli_query(
+        $conexion,
+        $sqlNoRegistrados
+    );
 
-if ($resultado) {
+if ($resultadoNoRegistrados) {
 
-    $fila = mysqli_fetch_assoc($resultado);
+    $filaNoRegistrados =
+        mysqli_fetch_assoc(
+            $resultadoNoRegistrados
+        );
 
     $totalNoRegistrados =
-        (int)($fila['total'] ?? 0);
+        (int)(
+            $filaNoRegistrados['total'] ?? 0
+        );
 }
-
 
 /* =========================================================
    ESTADÍSTICA ÚLTIMOS 7 DÍAS
 ========================================================= */
 
-$nombresDias = [
-    'Domingo',
-    'Lunes',
-    'Martes',
-    'Miércoles',
-    'Jueves',
-    'Viernes',
-    'Sábado'
+$grafica = [];
+
+$dias = [
+    'Mon' => 'Lun',
+    'Tue' => 'Mar',
+    'Wed' => 'Mié',
+    'Thu' => 'Jue',
+    'Fri' => 'Vie',
+    'Sat' => 'Sáb',
+    'Sun' => 'Dom'
 ];
 
-$estadisticas = [];
+for (
+    $i = 6;
+    $i >= 0;
+    $i--
+) {
 
-$maxRegistros = 1;
-
-$totalSemana = 0;
-
-
-for ($i = 6; $i >= 0; $i--) {
-
-    $fecha = date(
+    $fechaGrafica = date(
         'Y-m-d',
         strtotime("-$i days")
     );
 
-    $diaNombre =
-        $nombresDias[
-            (int)date(
-                'w',
-                strtotime($fecha)
-            )
-        ];
+    $diaNombre = date(
+        'D',
+        strtotime($fechaGrafica)
+    );
 
-    $diaCorto =
-        mb_substr(
-            $diaNombre,
-            0,
-            3,
-            'UTF-8'
-        );
-
-    $diaCorto =
-        ucfirst($diaCorto);
-
-
-    $sqlDia = "
-        SELECT COUNT(*) AS total
-        FROM asistencia_restaurante
-        WHERE fecha = '$fecha'
-        AND estado = 'REGISTRADO'
-    ";
-
-    $resultadoDia =
-        mysqli_query(
-            $conexion,
-            $sqlDia
-        );
-
-    $cantidad = 0;
-
-    if ($resultadoDia) {
-
-        $filaDia =
-            mysqli_fetch_assoc(
-                $resultadoDia
-            );
-
-        $cantidad =
-            (int)(
-                $filaDia['total'] ?? 0
-            );
-    }
-
-
-    if ($cantidad > $maxRegistros) {
-
-        $maxRegistros =
-            $cantidad;
-    }
-
-
-    $totalSemana += $cantidad;
-
-
-    $estadisticas[] = [
-        'fecha' => $fecha,
-        'dia' => $diaCorto,
-        'cantidad' => $cantidad
+    $grafica[] = [
+        'fecha' => $fechaGrafica,
+        'dia' =>
+            $dias[$diaNombre]
+            ?? $diaNombre,
+        'total' => 0
     ];
 }
 
+/* =========================================================
+   CONSULTAR ACTIVIDAD DEL RESTAURANTE
+========================================================= */
+
+$fechaInicioGrafica = date(
+    'Y-m-d',
+    strtotime('-6 days')
+);
+
+$sqlGrafica = "
+    SELECT
+        fecha,
+        COUNT(*) AS total
+
+    FROM asistencia_restaurante
+
+    WHERE fecha BETWEEN ? AND ?
+      AND estado = 'REGISTRADO'
+
+    GROUP BY fecha
+
+    ORDER BY fecha ASC
+";
+
+$stmtGrafica = mysqli_prepare(
+    $conexion,
+    $sqlGrafica
+);
+
+if ($stmtGrafica) {
+
+    mysqli_stmt_bind_param(
+        $stmtGrafica,
+        "ss",
+        $fechaInicioGrafica,
+        $fechaHoy
+    );
+
+    mysqli_stmt_execute(
+        $stmtGrafica
+    );
+
+    $resultadoGrafica =
+        mysqli_stmt_get_result(
+            $stmtGrafica
+        );
+
+    $datosPorFecha = [];
+
+    while (
+        $fila =
+        mysqli_fetch_assoc(
+            $resultadoGrafica
+        )
+    ) {
+
+        $datosPorFecha[
+            $fila['fecha']
+        ] =
+            (int)$fila['total'];
+    }
+
+    foreach (
+        $grafica as &$diaGrafica
+    ) {
+
+        if (
+            isset(
+                $datosPorFecha[
+                    $diaGrafica['fecha']
+                ]
+            )
+        ) {
+
+            $diaGrafica['total'] =
+                $datosPorFecha[
+                    $diaGrafica['fecha']
+                ];
+        }
+    }
+
+    unset($diaGrafica);
+
+    mysqli_stmt_close(
+        $stmtGrafica
+    );
+}
 
 /* =========================================================
-   CONSULTA DEL HISTORIAL
+   TOTAL SEMANAL
+========================================================= */
+
+$totalSemana = 0;
+
+foreach (
+    $grafica as $dia
+) {
+
+    $totalSemana +=
+        (int)$dia['total'];
+}
+
+/* =========================================================
+   FILTROS
+========================================================= */
+
+$fechaFiltro =
+    $_GET['fecha'] ?? '';
+
+$estadoFiltro =
+    $_GET['estado'] ?? '';
+
+$busqueda =
+    trim(
+        $_GET['busqueda'] ?? ''
+    );
+
+/* =========================================================
+   CONSULTA HISTORIAL
 ========================================================= */
 
 $condiciones = [];
-
-
-/* FILTRO FECHA */
+$parametros = [];
+$tipos = '';
 
 if ($fechaFiltro !== '') {
 
-    $fechaSegura =
-        mysqli_real_escape_string(
-            $conexion,
-            $fechaFiltro
-        );
-
     $condiciones[] =
-        "ar.fecha = '$fechaSegura'";
+        "ar.fecha = ?";
+
+    $parametros[] =
+        $fechaFiltro;
+
+    $tipos .= "s";
 }
-
-
-/* FILTRO ESTADO */
 
 if (
     $estadoFiltro === 'REGISTRADO' ||
     $estadoFiltro === 'NO_REGISTRADO'
 ) {
 
-    $estadoSegura =
-        mysqli_real_escape_string(
-            $conexion,
-            $estadoFiltro
-        );
-
     $condiciones[] =
-        "ar.estado = '$estadoSegura'";
+        "ar.estado = ?";
+
+    $parametros[] =
+        $estadoFiltro;
+
+    $tipos .= "s";
 }
-
-
-/* BÚSQUEDA */
 
 if ($busqueda !== '') {
 
-    $busquedaSegura =
-        mysqli_real_escape_string(
-            $conexion,
-            $busqueda
-        );
-
     $condiciones[] = "
         (
-            e.nombres LIKE '%$busquedaSegura%'
-            OR e.apellidos LIKE '%$busquedaSegura%'
-            OR e.documento LIKE '%$busquedaSegura%'
+            e.nombres LIKE ?
+            OR e.apellidos LIKE ?
+            OR e.documento LIKE ?
         )
     ";
-}
 
+    $valorBusqueda =
+        '%' .
+        $busqueda .
+        '%';
+
+    $parametros[] =
+        $valorBusqueda;
+
+    $parametros[] =
+        $valorBusqueda;
+
+    $parametros[] =
+        $valorBusqueda;
+
+    $tipos .= "sss";
+}
 
 $where = '';
 
@@ -322,7 +460,6 @@ if (!empty($condiciones)) {
         );
 }
 
-
 /* =========================================================
    HISTORIAL
 ========================================================= */
@@ -332,33 +469,29 @@ $sqlHistorial = "
     SELECT
 
         ar.id_asistencia_restaurante,
-
         ar.id_estudiante,
-
         ar.fecha,
-
         ar.hora,
-
         ar.estado,
-
         ar.observacion,
-
         ar.fecha_registro,
 
         e.documento,
-
         e.nombres,
-
         e.apellidos,
+        e.id_curso,
 
-        e.id_curso
+        c.nombre_curso
 
     FROM asistencia_restaurante ar
 
     INNER JOIN estudiantes e
-
         ON e.id_estudiante =
            ar.id_estudiante
+
+    LEFT JOIN cursos c
+        ON c.id_curso =
+           e.id_curso
 
     $where
 
@@ -369,13 +502,34 @@ $sqlHistorial = "
     LIMIT 100
 ";
 
-
-$resultadoHistorial =
-    mysqli_query(
+$stmtHistorial =
+    mysqli_prepare(
         $conexion,
         $sqlHistorial
     );
 
+$resultadoHistorial = false;
+
+if ($stmtHistorial) {
+
+    if (!empty($parametros)) {
+
+        mysqli_stmt_bind_param(
+            $stmtHistorial,
+            $tipos,
+            ...$parametros
+        );
+    }
+
+    mysqli_stmt_execute(
+        $stmtHistorial
+    );
+
+    $resultadoHistorial =
+        mysqli_stmt_get_result(
+            $stmtHistorial
+        );
+}
 
 /* =========================================================
    TOTAL FILTRADO
@@ -390,21 +544,37 @@ $sqlFiltrado = "
     FROM asistencia_restaurante ar
 
     INNER JOIN estudiantes e
-
         ON e.id_estudiante =
            ar.id_estudiante
 
     $where
-
 ";
 
-$resultadoFiltrado =
-    mysqli_query(
+$stmtFiltrado =
+    mysqli_prepare(
         $conexion,
         $sqlFiltrado
     );
 
-if ($resultadoFiltrado) {
+if ($stmtFiltrado) {
+
+    if (!empty($parametros)) {
+
+        mysqli_stmt_bind_param(
+            $stmtFiltrado,
+            $tipos,
+            ...$parametros
+        );
+    }
+
+    mysqli_stmt_execute(
+        $stmtFiltrado
+    );
+
+    $resultadoFiltrado =
+        mysqli_stmt_get_result(
+            $stmtFiltrado
+        );
 
     $filaFiltrado =
         mysqli_fetch_assoc(
@@ -436,63 +606,36 @@ if ($resultadoFiltrado) {
     Asistencia QR | Restaurante
 </title>
 
-
 <link
     rel="stylesheet"
     href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css"
 >
 
-
 <style>
-
-/* =========================================================
-   VARIABLES
-========================================================= */
 
 :root{
 
     --aqua:#18d8ce;
-
     --aqua-dark:#087d92;
-
-    --mint:#42cda1;
-
     --blue:#69b8d5;
-
+    --mint:#42cda1;
     --purple:#8579d2;
-
-    --gold:#d1a158;
-
     --coral:#e99a78;
-
-    --red:#d87983;
-
     --text:#3e6f7d;
-
     --dark:#20596d;
+    --muted:#7897a0;
 
 }
-
-
-/* =========================================================
-   RESET
-========================================================= */
 
 *{
-
     margin:0;
-
     padding:0;
-
     box-sizing:border-box;
-
 }
-
 
 body{
 
     min-height:100vh;
-
     overflow-x:hidden;
 
     font-family:
@@ -505,35 +648,29 @@ body{
     background:
 
         radial-gradient(
-            circle at 7% 8%,
-            rgba(24,216,206,.14),
+            circle at 5% 10%,
+            rgba(24,216,206,.13),
             transparent 27%
         ),
 
         radial-gradient(
-            circle at 94% 90%,
-            rgba(133,121,210,.12),
+            circle at 96% 88%,
+            rgba(133,121,210,.13),
             transparent 30%
         ),
 
         linear-gradient(
             135deg,
-            #e8faf7,
+            #e8faf7 0%,
             #f8fdfc 48%,
-            #eaf6fb
+            #eaf6fb 100%
         );
 
 }
 
-
-/* =========================================================
-   APP
-========================================================= */
-
 .app{
 
     position:relative;
-
     z-index:1;
 
     display:flex;
@@ -546,7 +683,6 @@ body{
 
 }
 
-
 /* =========================================================
    SIDEBAR
 ========================================================= */
@@ -554,14 +690,12 @@ body{
 .sidebar{
 
     width:285px;
-
     flex-shrink:0;
 
     min-height:
         calc(100vh - 36px);
 
     display:flex;
-
     flex-direction:column;
 
     padding:
@@ -576,12 +710,11 @@ body{
     background:
         linear-gradient(
             145deg,
-            rgba(255,255,255,.88),
-            rgba(232,250,247,.70)
+            rgba(255,255,255,.87),
+            rgba(232,250,247,.68)
         );
 
-    backdrop-filter:
-        blur(25px);
+    backdrop-filter:blur(25px);
 
     box-shadow:
         0 25px 65px
@@ -589,15 +722,9 @@ body{
 
 }
 
-
-/* =========================================================
-   LOGO
-========================================================= */
-
 .sidebar-header{
 
     display:flex;
-
     align-items:center;
 
     gap:13px;
@@ -607,20 +734,19 @@ body{
 
 }
 
-
 .logo-container{
 
     width:64px;
-
     height:64px;
 
     display:flex;
 
     align-items:center;
-
     justify-content:center;
 
     padding:7px;
+
+    flex-shrink:0;
 
     border-radius:19px;
 
@@ -631,19 +757,20 @@ body{
         1px solid
         rgba(255,255,255,.95);
 
-}
+    box-shadow:
+        0 12px 30px
+        rgba(55,113,129,.10);
 
+}
 
 .logo-container img{
 
     width:100%;
-
     height:100%;
 
     object-fit:contain;
 
 }
-
 
 .sidebar-title strong{
 
@@ -651,14 +778,11 @@ body{
 
     color:#075273;
 
-    font-size:17px;
+    font-size:19px;
 
     font-weight:950;
 
-    letter-spacing:.5px;
-
 }
-
 
 .sidebar-title small{
 
@@ -668,18 +792,15 @@ body{
 
     color:#7898a1;
 
-    font-size:10px;
+    font-size:11px;
 
     font-weight:750;
 
 }
 
-
-/* =========================================================
-   LÍNEA
-========================================================= */
-
 .sidebar-line{
+
+    position:relative;
 
     height:1px;
 
@@ -691,24 +812,34 @@ body{
 
 }
 
+.sidebar-line span{
 
-/* =========================================================
-   MENÚ
-========================================================= */
+    position:absolute;
+
+    left:0;
+    top:-1px;
+
+    width:55px;
+    height:2px;
+
+    border-radius:5px;
+
+    background:
+        linear-gradient(
+            90deg,
+            var(--aqua),
+            transparent
+        );
+
+}
 
 .navigation{
-
     flex:1;
-
 }
-
 
 .menu-section{
-
     margin-bottom:12px;
-
 }
-
 
 .menu-label{
 
@@ -718,14 +849,14 @@ body{
 
     gap:8px;
 
-    min-height:27px;
+    min-height:30px;
 
     padding:
         0 11px;
 
     color:#7d9aa3;
 
-    font-size:9px;
+    font-size:11px;
 
     font-weight:950;
 
@@ -733,11 +864,9 @@ body{
 
 }
 
-
 .label-line{
 
     width:17px;
-
     height:2px;
 
     border-radius:4px;
@@ -745,7 +874,6 @@ body{
     background:#b9d7db;
 
 }
-
 
 .nav-link{
 
@@ -757,7 +885,9 @@ body{
 
     gap:11px;
 
-    min-height:51px;
+    width:100%;
+
+    min-height:55px;
 
     margin-bottom:4px;
 
@@ -770,14 +900,13 @@ body{
 
     text-decoration:none;
 
-    font-size:12px;
+    font-size:14px;
 
     font-weight:850;
 
     transition:.25s;
 
 }
-
 
 .nav-link:hover{
 
@@ -790,7 +919,6 @@ body{
         translateX(4px);
 
 }
-
 
 .nav-link.active{
 
@@ -805,7 +933,6 @@ body{
 
 }
 
-
 .nav-link.active::before{
 
     content:"";
@@ -815,7 +942,6 @@ body{
     left:0;
 
     top:8px;
-
     bottom:8px;
 
     width:4px;
@@ -832,17 +958,14 @@ body{
 
 }
 
-
 .nav-icon{
 
-    width:38px;
-
-    height:38px;
+    width:40px;
+    height:40px;
 
     display:flex;
 
     align-items:center;
-
     justify-content:center;
 
     flex-shrink:0;
@@ -854,10 +977,9 @@ body{
     background:
         rgba(24,216,206,.075);
 
-    font-size:18px;
+    font-size:19px;
 
 }
-
 
 .nav-icon.academic{
 
@@ -868,7 +990,6 @@ body{
 
 }
 
-
 .nav-icon.people{
 
     color:#488da1;
@@ -877,7 +998,6 @@ body{
         rgba(105,184,213,.10);
 
 }
-
 
 .nav-icon.qr-icon{
 
@@ -888,17 +1008,6 @@ body{
 
 }
 
-
-.nav-icon.restaurant{
-
-    color:#d19a46;
-
-    background:
-        rgba(209,161,88,.13);
-
-}
-
-
 .nav-icon.reports{
 
     color:#bd8a40;
@@ -908,20 +1017,20 @@ body{
 
 }
 
+.nav-icon.restaurant{
 
-.nav-icon.audit{
-
-    color:#7569c2;
+    color:#d99a24;
 
     background:
-        rgba(133,121,210,.11);
+        rgba(245,190,70,.14);
 
 }
-
 
 .nav-arrow{
 
     margin-left:auto;
+
+    color:#a1b8be;
 
     opacity:0;
 
@@ -929,17 +1038,9 @@ body{
 
 }
 
-
 .nav-link:hover .nav-arrow{
-
     opacity:1;
-
 }
-
-
-/* =========================================================
-   PERFIL
-========================================================= */
 
 .sidebar-bottom{
 
@@ -949,37 +1050,39 @@ body{
 
 }
 
-
 .profile-card{
 
     display:flex;
 
     align-items:center;
 
-    gap:9px;
+    gap:10px;
 
     padding:
-        9px 10px;
+        10px 11px;
 
     border-radius:15px;
 
     background:
         rgba(255,255,255,.54);
 
-}
+    border:
+        1px solid
+        rgba(255,255,255,.85);
 
+}
 
 .profile-avatar{
 
-    width:39px;
-
-    height:39px;
+    width:42px;
+    height:42px;
 
     display:flex;
 
     align-items:center;
-
     justify-content:center;
+
+    flex-shrink:0;
 
     border-radius:12px;
 
@@ -992,49 +1095,56 @@ body{
             #15966f
         );
 
-    font-size:13px;
+    font-size:14px;
 
     font-weight:950;
 
 }
 
-
 .profile-info{
 
     flex:1;
+    min-width:0;
 
 }
-
 
 .profile-info strong{
 
     display:block;
 
+    overflow:hidden;
+
     color:#4d7c89;
 
-    font-size:11px;
+    font-size:13px;
+
+    font-weight:900;
+
+    white-space:nowrap;
+
+    text-overflow:ellipsis;
 
 }
-
 
 .profile-info small{
 
+    display:block;
+
+    margin-top:3px;
+
     color:#8ca6ad;
 
-    font-size:9px;
+    font-size:10px;
 
 }
-
 
 .profile-status{
 
     color:#27b884;
 
-    animation:
-        pulse 2s infinite;
+    font-size:11px;
 
 }
-
 
 .logout{
 
@@ -1044,7 +1154,9 @@ body{
 
     gap:9px;
 
-    min-height:45px;
+    min-height:48px;
+
+    margin-top:3px;
 
     padding:
         0 10px;
@@ -1053,23 +1165,31 @@ body{
 
     text-decoration:none;
 
-    font-size:11px;
+    font-size:13px;
 
     font-weight:850;
 
 }
 
+.logout:hover{
+
+    color:#a4535c;
+
+    background:
+        rgba(242,143,150,.08);
+
+    border-radius:13px;
+
+}
 
 .logout-icon{
 
-    width:33px;
-
-    height:33px;
+    width:35px;
+    height:35px;
 
     display:flex;
 
     align-items:center;
-
     justify-content:center;
 
     border-radius:10px;
@@ -1078,7 +1198,6 @@ body{
         rgba(242,143,150,.08);
 
 }
-
 
 /* =========================================================
    MAIN
@@ -1094,10 +1213,9 @@ body{
 
     flex-direction:column;
 
-    gap:16px;
+    gap:18px;
 
 }
-
 
 /* =========================================================
    TOPBAR
@@ -1105,13 +1223,15 @@ body{
 
 .topbar{
 
-    min-height:78px;
+    min-height:82px;
 
     display:flex;
 
     align-items:center;
 
     justify-content:space-between;
+
+    gap:20px;
 
     padding:
         14px 22px;
@@ -1125,15 +1245,13 @@ body{
     background:
         rgba(255,255,255,.68);
 
-    backdrop-filter:
-        blur(20px);
+    backdrop-filter:blur(20px);
 
     box-shadow:
         0 16px 42px
         rgba(55,113,129,.065);
 
 }
-
 
 .page-info{
 
@@ -1145,72 +1263,98 @@ body{
 
 }
 
-
 .page-indicator{
 
     width:9px;
-
-    height:43px;
+    height:47px;
 
     border-radius:7px;
 
     background:
         linear-gradient(
             180deg,
-            var(--gold),
+            #d1a158,
             var(--coral)
         );
 
 }
 
-
 .page-title h1{
 
     color:#15576c;
 
-    font-size:23px;
+    font-size:28px;
 
     font-weight:950;
 
 }
 
-
 .page-title p{
 
-    margin-top:4px;
+    margin-top:5px;
 
     color:#7898a2;
 
-    font-size:11px;
+    font-size:14px;
 
     font-weight:650;
 
 }
 
-
-/* =========================================================
-   CLOCK
-========================================================= */
-
 .clock-box{
 
-    text-align:right;
+    display:flex;
+
+    align-items:center;
+
+    gap:12px;
+
+    padding:
+        10px 15px;
+
+    border-radius:15px;
+
+    background:
+        rgba(255,255,255,.73);
+
+    border:
+        1px solid
+        rgba(255,255,255,.90);
 
 }
 
+.clock-icon{
 
-.clock{
+    width:38px;
+    height:38px;
+
+    display:flex;
+
+    align-items:center;
+    justify-content:center;
+
+    border-radius:11px;
+
+    color:#c08c3f;
+
+    background:
+        rgba(209,161,88,.10);
+
+    font-size:18px;
+
+}
+
+.clock-time{
 
     color:#155b70;
 
-    font-size:20px;
+    font-size:18px;
 
     font-weight:950;
 
-    letter-spacing:1px;
+    letter-spacing:.5px;
 
 }
-
 
 .clock-date{
 
@@ -1218,24 +1362,23 @@ body{
 
     color:#819ba3;
 
-    font-size:9px;
+    font-size:10px;
 
     font-weight:750;
 
 }
 
-
 /* =========================================================
-   HERO
+   WELCOME
 ========================================================= */
 
-.hero{
+.welcome{
 
     position:relative;
 
-    overflow:hidden;
+    min-height:215px;
 
-    min-height:205px;
+    overflow:hidden;
 
     display:flex;
 
@@ -1243,446 +1386,384 @@ body{
 
     justify-content:space-between;
 
+    gap:30px;
+
     padding:
-        30px 36px;
+        30px 40px;
 
     border:
         1px solid
-        rgba(255,255,255,.93);
+        rgba(255,255,255,.94);
 
-    border-radius:29px;
+    border-radius:28px;
 
     background:
 
         radial-gradient(
-            ellipse at 88% 40%,
-            rgba(209,161,88,.18),
-            transparent 28%
+            circle at 84% 20%,
+            rgba(209,161,88,.17),
+            transparent 25%
         ),
 
         radial-gradient(
-            ellipse at 65% 100%,
-            rgba(24,216,206,.11),
-            transparent 32%
+            circle at 65% 110%,
+            rgba(24,216,206,.13),
+            transparent 34%
         ),
 
         linear-gradient(
-            120deg,
-            rgba(255,255,255,.84),
-            rgba(235,250,247,.68)
+            135deg,
+            rgba(255,255,255,.85),
+            rgba(236,250,248,.72)
         );
 
     box-shadow:
-        0 25px 60px
+        0 22px 52px
         rgba(55,113,129,.08);
 
 }
 
+.welcome::before{
 
-.hero-content{
+    content:"";
 
-    position:relative;
+    position:absolute;
 
-    z-index:2;
+    width:300px;
+    height:300px;
+
+    right:-70px;
+    top:-190px;
+
+    border-radius:50%;
+
+    border:
+        45px solid
+        rgba(209,161,88,.055);
 
 }
 
+.welcome::after{
 
-.eyebrow{
+    content:"";
+
+    position:absolute;
+
+    width:190px;
+    height:190px;
+
+    right:300px;
+    bottom:-135px;
+
+    border-radius:50%;
+
+    background:
+        rgba(133,121,210,.06);
+
+}
+
+.welcome-content{
+
+    position:relative;
+
+    z-index:3;
+
+    max-width:720px;
+
+}
+
+.welcome-tag{
 
     display:inline-flex;
 
     align-items:center;
 
-    gap:8px;
+    gap:7px;
 
     margin-bottom:11px;
 
     padding:
         7px 12px;
 
-    border-radius:20px;
+    border-radius:10px;
 
-    color:#aa7833;
+    color:#a97935;
 
     background:
-        rgba(209,161,88,.10);
+        rgba(209,161,88,.09);
 
-    font-size:9px;
-
-    font-weight:950;
-
-    letter-spacing:1px;
-
-}
-
-
-.eyebrow span{
-
-    width:6px;
-
-    height:6px;
-
-    border-radius:50%;
-
-    background:#d1a158;
-
-    animation:
-        pulse 1.8s infinite;
-
-}
-
-
-.hero h2{
-
-    color:#15566b;
-
-    font-size:35px;
+    font-size:10px;
 
     font-weight:950;
 
+    letter-spacing:.7px;
+
 }
 
+.welcome h2{
 
-.hero h2 span{
+    color:#15576c;
 
+    font-size:33px;
+
+    font-weight:950;
+
+    line-height:1.15;
+
+}
+
+.welcome h2 span{
     color:#c08c3f;
-
 }
 
+.welcome p{
 
-.hero p{
+    max-width:680px;
 
-    max-width:720px;
+    margin-top:11px;
 
-    margin-top:10px;
+    color:#7898a2;
 
-    color:#648591;
-
-    font-size:12px;
-
-    line-height:1.7;
+    font-size:14px;
 
     font-weight:650;
 
+    line-height:1.65;
+
 }
 
-
 /* =========================================================
-   HERO VISUAL
+   RESTAURANT ILLUSTRATION
 ========================================================= */
 
-.hero-visual{
+.restaurant-illustration{
 
     position:relative;
 
-    width:190px;
+    z-index:3;
 
-    height:145px;
+    width:250px;
+    height:170px;
 
     flex-shrink:0;
 
 }
 
-
-.plate{
+.restaurant-glow{
 
     position:absolute;
 
-    width:105px;
+    width:145px;
+    height:145px;
 
-    height:105px;
+    right:25px;
+    top:10px;
 
+    border-radius:50%;
+
+    background:
+        radial-gradient(
+            circle,
+            rgba(209,161,88,.18),
+            transparent 68%
+        );
+
+    animation:
+        glowPulse 4s ease-in-out infinite;
+
+}
+
+.restaurant-plate{
+
+    position:absolute;
+
+    right:42px;
     top:20px;
 
-    left:35px;
+    width:125px;
+    height:125px;
 
     display:flex;
 
     align-items:center;
-
     justify-content:center;
 
     border:
-        8px solid
-        rgba(255,255,255,.75);
+        9px solid
+        rgba(255,255,255,.86);
 
     border-radius:50%;
 
     background:
         linear-gradient(
             145deg,
-            #eafbf6,
-            #dff5f3
+            #f8fffd,
+            #e6f6f3
         );
 
     box-shadow:
-        0 20px 35px
-        rgba(55,113,129,.12);
+        0 22px 35px
+        rgba(55,113,129,.14);
 
     animation:
-        float 4s ease-in-out infinite;
+        plateFloat 4s ease-in-out infinite;
 
 }
 
-
-.plate i{
+.restaurant-plate i{
 
     color:#d19a46;
 
-    font-size:42px;
+    font-size:52px;
 
 }
 
-
-.orbit{
-
-    position:absolute;
-
-    width:135px;
-
-    height:135px;
-
-    top:5px;
-
-    left:20px;
-
-    border:
-        1px dashed
-        rgba(209,161,88,.30);
-
-    border-radius:50%;
-
-    animation:
-        spin 13s linear infinite;
-
-}
-
-
-.orbit-dot{
+.restaurant-float{
 
     position:absolute;
 
-    width:8px;
+    display:flex;
 
-    height:8px;
+    align-items:center;
+    justify-content:center;
 
-    top:11px;
-
-    left:63px;
-
-    border-radius:50%;
-
-    background:#d1a158;
+    border-radius:14px;
 
     box-shadow:
-        0 0 15px
-        rgba(209,161,88,.55);
+        0 12px 25px
+        rgba(55,113,129,.12);
+
+    animation:
+        elementFloat 3.5s ease-in-out infinite;
 
 }
 
+.restaurant-float.one{
+
+    left:5px;
+    top:32px;
+
+    width:45px;
+    height:45px;
+
+    color:#fff;
+
+    background:
+        linear-gradient(
+            145deg,
+            #d1a158,
+            #b87b2d
+        );
+
+}
+
+.restaurant-float.two{
+
+    right:0;
+    top:7px;
+
+    width:37px;
+    height:37px;
+
+    color:#fff;
+
+    background:
+        linear-gradient(
+            145deg,
+            #8579d2,
+            #6b60b8
+        );
+
+    animation-delay:.7s;
+
+}
+
+.restaurant-float.three{
+
+    left:32px;
+    bottom:20px;
+
+    width:31px;
+    height:31px;
+
+    color:#0b9f9c;
+
+    background:
+        rgba(255,255,255,.92);
+
+    animation-delay:1.2s;
+
+}
+
+@keyframes glowPulse{
+
+    0%,100%{
+        transform:scale(1);
+        opacity:.7;
+    }
+
+    50%{
+        transform:scale(1.13);
+        opacity:1;
+    }
+
+}
+
+@keyframes plateFloat{
+
+    0%,100%{
+        transform:translateY(0);
+    }
+
+    50%{
+        transform:translateY(-7px);
+    }
+
+}
+
+@keyframes elementFloat{
+
+    0%,100%{
+        transform:translateY(0);
+    }
+
+    50%{
+        transform:translateY(-8px);
+    }
+
+}
 
 /* =========================================================
-   CARDS
+   SUMMARY
 ========================================================= */
 
-.cards{
+.summary-grid{
 
     display:grid;
 
     grid-template-columns:
-        repeat(4,1fr);
+        repeat(4,minmax(0,1fr));
 
-    gap:14px;
+    gap:16px;
 
 }
 
-
-.card{
+.summary-item{
 
     position:relative;
 
+    min-height:128px;
+
     overflow:hidden;
-
-    min-height:155px;
-
-    padding:18px;
-
-    border:
-        1px solid
-        rgba(255,255,255,.94);
-
-    border-radius:21px;
-
-    background:
-        rgba(255,255,255,.72);
-
-    box-shadow:
-        0 15px 38px
-        rgba(55,113,129,.065);
-
-    transition:.3s;
-
-}
-
-
-.card:hover{
-
-    transform:
-        translateY(-5px);
-
-}
-
-
-.card-icon{
-
-    width:43px;
-
-    height:43px;
 
     display:flex;
 
     align-items:center;
 
-    justify-content:center;
+    gap:17px;
 
-    margin-bottom:10px;
-
-    border-radius:13px;
-
-    font-size:19px;
-
-}
-
-
-.card strong{
-
-    display:block;
-
-    color:#155b70;
-
-    font-size:30px;
-
-    font-weight:950;
-
-}
-
-
-.card span{
-
-    display:block;
-
-    margin-top:3px;
-
-    color:#63838d;
-
-    font-size:10px;
-
-    font-weight:800;
-
-}
-
-
-.card.mint .card-icon{
-
-    color:#2caf87;
-
-    background:
-        rgba(66,205,161,.12);
-
-}
-
-
-.card.blue .card-icon{
-
-    color:#559fc0;
-
-    background:
-        rgba(105,184,213,.12);
-
-}
-
-
-.card.gold .card-icon{
-
-    color:#c28c3d;
-
-    background:
-        rgba(209,161,88,.13);
-
-}
-
-
-.card.coral .card-icon{
-
-    color:#d87f60;
-
-    background:
-        rgba(233,154,120,.13);
-
-}
-
-
-/* =========================================================
-   SECTION HEADER
-========================================================= */
-
-.section-heading{
-
-    display:flex;
-
-    align-items:end;
-
-    justify-content:space-between;
-
-    margin:
-        1px 5px -1px;
-
-}
-
-
-.section-heading h3{
-
-    color:#386b7b;
-
-    font-size:18px;
-
-    font-weight:950;
-
-}
-
-
-.section-heading span{
-
-    color:#7898a2;
-
-    font-size:10px;
-
-    font-weight:750;
-
-}
-
-
-/* =========================================================
-   ANALYTICS
-========================================================= */
-
-.analytics{
-
-    display:grid;
-
-    grid-template-columns:
-        minmax(0,2fr)
-        minmax(260px,1fr);
-
-    gap:14px;
-
-}
-
-
-.panel{
-
-    padding:20px;
+    padding:
+        21px 22px;
 
     border:
         1px solid
@@ -1691,88 +1772,241 @@ body{
     border-radius:23px;
 
     background:
-        rgba(255,255,255,.72);
+        rgba(255,255,255,.76);
 
     box-shadow:
-        0 15px 38px
-        rgba(55,113,129,.06);
+        0 18px 42px
+        rgba(55,113,129,.065);
+
+    transition:
+        transform .25s,
+        box-shadow .25s;
 
 }
 
+.summary-item::after{
+
+    content:"";
+
+    position:absolute;
+
+    width:90px;
+    height:90px;
+
+    right:-35px;
+    bottom:-45px;
+
+    border-radius:50%;
+
+    background:
+        rgba(209,161,88,.055);
+
+}
+
+.summary-item:hover{
+
+    transform:
+        translateY(-5px);
+
+    box-shadow:
+        0 24px 48px
+        rgba(55,113,129,.10);
+
+}
+
+.summary-icon{
+
+    width:63px;
+    height:63px;
+
+    display:flex;
+
+    align-items:center;
+    justify-content:center;
+
+    flex-shrink:0;
+
+    border-radius:18px;
+
+    color:#c08c3f;
+
+    background:
+        rgba(209,161,88,.10);
+
+    font-size:28px;
+
+}
+
+.summary-item:nth-child(2)
+.summary-icon{
+
+    color:#5578ca;
+
+    background:
+        rgba(105,184,213,.12);
+
+}
+
+.summary-item:nth-child(3)
+.summary-icon{
+
+    color:#7569c2;
+
+    background:
+        rgba(133,121,210,.10);
+
+}
+
+.summary-item:nth-child(4)
+.summary-icon{
+
+    color:#d47778;
+
+    background:
+        rgba(216,121,131,.10);
+
+}
+
+.summary-text span{
+
+    display:block;
+
+    color:#819da5;
+
+    font-size:12px;
+
+    font-weight:800;
+
+}
+
+.summary-text strong{
+
+    display:block;
+
+    margin-top:5px;
+
+    color:#315f70;
+
+    font-size:30px;
+
+    font-weight:950;
+
+    line-height:1;
+
+}
 
 /* =========================================================
-   GRAPH
+   ANALYTICS
 ========================================================= */
 
-.panel-header{
+.analytics-layout{
+
+    display:grid;
+
+    grid-template-columns:
+        minmax(0,1.75fr)
+        minmax(290px,.85fr);
+
+    gap:16px;
+
+}
+
+.chart-card{
+
+    padding:
+        24px 25px 21px;
+
+    border:
+        1px solid
+        rgba(255,255,255,.94);
+
+    border-radius:25px;
+
+    background:
+        rgba(255,255,255,.74);
+
+    box-shadow:
+        0 18px 42px
+        rgba(55,113,129,.065);
+
+}
+
+.section-heading{
+
+    display:flex;
+
+    align-items:flex-start;
+
+    justify-content:space-between;
+
+    gap:15px;
+
+    margin-bottom:20px;
+
+}
+
+.section-heading h3{
+
+    color:#416f7e;
+
+    font-size:18px;
+
+    font-weight:950;
+
+}
+
+.section-heading p{
+
+    margin-top:5px;
+
+    color:#819ca4;
+
+    font-size:12px;
+
+    font-weight:650;
+
+}
+
+.week-label{
 
     display:flex;
 
     align-items:center;
 
-    justify-content:space-between;
+    gap:7px;
+
+    padding:
+        7px 10px;
+
+    border-radius:10px;
+
+    color:#a97835;
+
+    background:
+        rgba(209,161,88,.08);
+
+    font-size:10px;
+
+    font-weight:900;
 
 }
 
+.chart-area{
 
-.panel-header strong{
-
-    color:#416f7e;
-
-    font-size:13px;
-
-    font-weight:950;
-
-}
-
-
-.panel-header small{
-
-    display:block;
-
-    margin-top:3px;
-
-    color:#849da5;
-
-    font-size:9px;
-
-}
-
-
-.week-total{
-
-    color:#155b70;
-
-    font-size:22px;
-
-    font-weight:950;
-
-}
-
-
-.chart{
-
-    height:175px;
+    height:220px;
 
     display:flex;
 
     align-items:flex-end;
 
-    gap:12px;
-
-    margin-top:20px;
+    gap:13px;
 
     padding:
-        0 5px;
-
-    border-bottom:
-        1px solid
-        rgba(66,111,125,.12);
+        10px 5px 0;
 
 }
 
-
-.column{
+.chart-column{
 
     flex:1;
 
@@ -1786,82 +2020,141 @@ body{
 
     justify-content:flex-end;
 
-    gap:6px;
+    gap:8px;
 
 }
 
+.chart-value{
 
-.value{
+    min-height:18px;
 
-    color:#648691;
+    color:#668995;
 
-    font-size:8px;
+    font-size:10px;
 
     font-weight:850;
 
 }
 
-
-.bar-area{
+.chart-bar-wrapper{
 
     width:100%;
-
-    height:130px;
+    height:170px;
 
     display:flex;
 
     align-items:flex-end;
-
     justify-content:center;
 
 }
 
+.chart-bar{
 
-.bar{
+    width:
+        min(52px,70%);
 
-    width:min(32px,70%);
-
-    min-height:4px;
+    min-height:7px;
 
     border-radius:
-        9px 9px 3px 3px;
+        12px 12px 7px 7px;
 
     background:
         linear-gradient(
             180deg,
-            #d9b05e,
-            #6bc5ba
+            #d1a158,
+            #69b8d5
         );
 
-    animation:
-        grow .8s ease-out both;
+    box-shadow:
+        0 8px 18px
+        rgba(209,161,88,.13);
+
+    transition:
+        height .5s ease,
+        transform .2s ease;
 
 }
 
+.chart-bar:hover{
 
-.day{
+    transform:
+        translateY(-5px);
 
-    color:#76929c;
+}
 
-    font-size:9px;
+.chart-day{
+
+    color:#7897a0;
+
+    font-size:10px;
 
     font-weight:850;
 
 }
 
-
 /* =========================================================
-   SUMMARY
+   SERVICE CARD
 ========================================================= */
 
-.summary-list{
+.today-card{
 
-    margin-top:15px;
+    padding:
+        24px;
+
+    border:
+        1px solid
+        rgba(255,255,255,.94);
+
+    border-radius:25px;
+
+    background:
+        linear-gradient(
+            145deg,
+            rgba(255,255,255,.80),
+            rgba(236,250,248,.68)
+        );
+
+    box-shadow:
+        0 18px 42px
+        rgba(55,113,129,.065);
 
 }
 
+.today-card h3{
 
-.summary-item{
+    color:#416f7e;
+
+    font-size:18px;
+
+    font-weight:950;
+
+}
+
+.today-card > p{
+
+    margin-top:5px;
+
+    color:#819ca4;
+
+    font-size:12px;
+
+    font-weight:650;
+
+}
+
+.service-list{
+
+    display:flex;
+
+    flex-direction:column;
+
+    gap:9px;
+
+    margin-top:19px;
+
+}
+
+.service-row{
 
     display:flex;
 
@@ -1869,24 +2162,23 @@ body{
 
     justify-content:space-between;
 
+    gap:10px;
+
     padding:
-        12px 3px;
+        12px;
 
-    border-bottom:
+    border-radius:14px;
+
+    background:
+        rgba(255,255,255,.68);
+
+    border:
         1px solid
-        rgba(66,111,125,.08);
+        rgba(255,255,255,.82);
 
 }
 
-
-.summary-item:last-child{
-
-    border-bottom:0;
-
-}
-
-
-.summary-left{
+.service-info{
 
     display:flex;
 
@@ -1896,62 +2188,99 @@ body{
 
     color:#63838d;
 
-    font-size:10px;
+    font-size:11px;
 
     font-weight:800;
 
 }
 
+.service-info i{
 
-.summary-left i{
+    color:#c08c3f;
 
-    font-size:14px;
+    font-size:15px;
 
 }
 
+.service-row strong{
 
-.summary-item strong{
+    color:#416f7e;
 
-    color:#406f7e;
-
-    font-size:12px;
+    font-size:14px;
 
     font-weight:950;
 
 }
 
-
 /* =========================================================
    FILTERS
 ========================================================= */
 
-.filters{
+.filter-section{
 
-    display:flex;
-
-    align-items:end;
-
-    flex-wrap:wrap;
-
-    gap:10px;
-
-    padding:16px;
+    padding:
+        22px;
 
     border:
         1px solid
         rgba(255,255,255,.94);
 
-    border-radius:22px;
+    border-radius:25px;
 
     background:
-        rgba(255,255,255,.70);
+        rgba(255,255,255,.74);
 
     box-shadow:
-        0 14px 35px
-        rgba(55,113,129,.05);
+        0 18px 42px
+        rgba(55,113,129,.065);
 
 }
 
+.filter-title{
+
+    display:flex;
+
+    align-items:center;
+
+    justify-content:space-between;
+
+    gap:15px;
+
+    margin-bottom:16px;
+
+}
+
+.filter-title h3{
+
+    color:#416f7e;
+
+    font-size:18px;
+
+    font-weight:950;
+
+}
+
+.filter-title span{
+
+    color:#819ca4;
+
+    font-size:11px;
+
+    font-weight:700;
+
+}
+
+.filters{
+
+    display:flex;
+
+    align-items:flex-end;
+
+    flex-wrap:wrap;
+
+    gap:12px;
+
+}
 
 .field{
 
@@ -1959,10 +2288,9 @@ body{
 
     flex-direction:column;
 
-    gap:5px;
+    gap:6px;
 
 }
-
 
 .field label{
 
@@ -1972,18 +2300,19 @@ body{
 
     font-weight:900;
 
-}
+    letter-spacing:.5px;
 
+}
 
 .field input,
 .field select{
 
-    height:39px;
+    height:42px;
 
-    min-width:145px;
+    min-width:160px;
 
     padding:
-        0 11px;
+        0 12px;
 
     border:
         1px solid
@@ -1991,7 +2320,7 @@ body{
 
     outline:none;
 
-    border-radius:11px;
+    border-radius:12px;
 
     color:#4f7986;
 
@@ -2000,12 +2329,25 @@ body{
 
     font-family:inherit;
 
-    font-size:10px;
+    font-size:11px;
 
     font-weight:700;
 
 }
 
+.field.search{
+
+    flex:1;
+
+    min-width:220px;
+
+}
+
+.field.search input{
+
+    width:100%;
+
+}
 
 .field input:focus,
 .field select:focus{
@@ -2015,24 +2357,9 @@ body{
 
 }
 
-
-.field.search{
-
-    flex:1;
-
-}
-
-
-.field.search input{
-
-    width:100%;
-
-}
-
-
 .btn{
 
-    height:39px;
+    height:42px;
 
     display:inline-flex;
 
@@ -2043,11 +2370,11 @@ body{
     gap:7px;
 
     padding:
-        0 15px;
+        0 16px;
 
     border:0;
 
-    border-radius:11px;
+    border-radius:12px;
 
     color:#fff;
 
@@ -2076,14 +2403,12 @@ body{
 
 }
 
-
 .btn:hover{
 
     transform:
         translateY(-2px);
 
 }
-
 
 .btn.secondary{
 
@@ -2096,32 +2421,31 @@ body{
 
 }
 
-
 /* =========================================================
    TABLE
 ========================================================= */
 
-.table-panel{
+.table-card{
 
-    padding:18px;
+    padding:
+        22px;
 
     border:
         1px solid
         rgba(255,255,255,.94);
 
-    border-radius:23px;
+    border-radius:25px;
 
     background:
-        rgba(255,255,255,.72);
+        rgba(255,255,255,.74);
 
     box-shadow:
-        0 15px 38px
-        rgba(55,113,129,.06);
+        0 18px 42px
+        rgba(55,113,129,.065);
 
 }
 
-
-.table-top{
+.table-header{
 
     display:flex;
 
@@ -2129,26 +2453,32 @@ body{
 
     justify-content:space-between;
 
-    margin-bottom:13px;
+    gap:15px;
+
+    margin-bottom:16px;
 
 }
 
-
-.table-top strong{
+.table-header h3{
 
     color:#416f7e;
 
-    font-size:13px;
+    font-size:18px;
 
     font-weight:950;
 
 }
 
+.table-header span{
 
-.table-top span{
+    display:inline-flex;
+
+    align-items:center;
+
+    gap:6px;
 
     padding:
-        6px 9px;
+        7px 10px;
 
     border-radius:10px;
 
@@ -2163,29 +2493,26 @@ body{
 
 }
 
-
 .table-wrapper{
 
     overflow-x:auto;
 
 }
 
-
 table{
 
     width:100%;
 
-    min-width:760px;
+    min-width:900px;
 
     border-collapse:collapse;
 
 }
 
-
 thead th{
 
     padding:
-        10px 9px;
+        11px 10px;
 
     text-align:left;
 
@@ -2202,25 +2529,24 @@ thead th{
 
 }
 
-
 thead th:first-child{
 
-    border-radius:10px 0 0 10px;
+    border-radius:
+        10px 0 0 10px;
 
 }
-
 
 thead th:last-child{
 
-    border-radius:0 10px 10px 0;
+    border-radius:
+        0 10px 10px 0;
 
 }
-
 
 tbody td{
 
     padding:
-        12px 9px;
+        13px 10px;
 
     border-bottom:
         1px solid
@@ -2234,13 +2560,11 @@ tbody td{
 
 }
 
-
 tbody tr{
 
     transition:.2s;
 
 }
-
 
 tbody tr:hover{
 
@@ -2248,7 +2572,6 @@ tbody tr:hover{
         rgba(24,216,206,.035);
 
 }
-
 
 .student{
 
@@ -2260,20 +2583,19 @@ tbody tr:hover{
 
 }
 
-
 .student-avatar{
 
-    width:32px;
-
-    height:32px;
+    width:34px;
+    height:34px;
 
     display:flex;
 
     align-items:center;
-
     justify-content:center;
 
-    border-radius:10px;
+    flex-shrink:0;
+
+    border-radius:11px;
 
     color:#fff;
 
@@ -2290,7 +2612,6 @@ tbody tr:hover{
 
 }
 
-
 .student-name strong{
 
     display:block;
@@ -2302,7 +2623,6 @@ tbody tr:hover{
     font-weight:900;
 
 }
-
 
 .student-name small{
 
@@ -2316,6 +2636,39 @@ tbody tr:hover{
 
 }
 
+.course{
+
+    display:inline-flex;
+
+    align-items:center;
+
+    padding:
+        6px 8px;
+
+    border-radius:9px;
+
+    color:#6578bd;
+
+    background:
+        rgba(133,121,210,.08);
+
+    font-size:8px;
+
+    font-weight:900;
+
+}
+
+.time{
+
+    color:#416f7e;
+
+    font-size:10px;
+
+    font-weight:900;
+
+    white-space:nowrap;
+
+}
 
 .badge{
 
@@ -2334,8 +2687,9 @@ tbody tr:hover{
 
     font-weight:950;
 
-}
+    white-space:nowrap;
 
+}
 
 .badge.registered{
 
@@ -2346,7 +2700,6 @@ tbody tr:hover{
 
 }
 
-
 .badge.not-registered{
 
     color:#b96d76;
@@ -2356,17 +2709,15 @@ tbody tr:hover{
 
 }
 
-
 .badge i{
 
     font-size:8px;
 
 }
 
-
 .observation{
 
-    max-width:180px;
+    max-width:190px;
 
     overflow:hidden;
 
@@ -2376,19 +2727,18 @@ tbody tr:hover{
 
 }
 
-
 /* =========================================================
    EMPTY
 ========================================================= */
 
 .empty{
 
-    padding:35px;
+    padding:
+        50px 20px;
 
     text-align:center;
 
 }
-
 
 .empty i{
 
@@ -2396,12 +2746,11 @@ tbody tr:hover{
 
     margin-bottom:10px;
 
-    color:#91c8c4;
+    color:#8dc6c5;
 
-    font-size:32px;
+    font-size:38px;
 
 }
-
 
 .empty strong{
 
@@ -2409,103 +2758,33 @@ tbody tr:hover{
 
     color:#557d89;
 
-    font-size:12px;
+    font-size:13px;
 
 }
-
 
 .empty span{
 
     display:block;
 
-    margin-top:4px;
+    margin-top:5px;
 
     color:#91a8ae;
 
-    font-size:9px;
+    font-size:10px;
 
 }
-
-
-/* =========================================================
-   ANIMATIONS
-========================================================= */
-
-@keyframes pulse{
-
-    0%,100%{
-
-        opacity:.45;
-
-    }
-
-    50%{
-
-        opacity:1;
-
-    }
-
-}
-
-
-@keyframes float{
-
-    0%,100%{
-
-        transform:translateY(0);
-
-    }
-
-    50%{
-
-        transform:translateY(-7px);
-
-    }
-
-}
-
-
-@keyframes spin{
-
-    to{
-
-        transform:rotate(360deg);
-
-    }
-
-}
-
-
-@keyframes grow{
-
-    from{
-
-        transform:scaleY(0);
-
-    }
-
-    to{
-
-        transform:scaleY(1);
-
-    }
-
-}
-
 
 /* =========================================================
    RESPONSIVE
 ========================================================= */
 
-@media(max-width:1250px){
+@media(max-width:1200px){
 
     .sidebar{
-
-        width:265px;
-
+        width:255px;
     }
 
-    .cards{
+    .summary-grid{
 
         grid-template-columns:
             repeat(2,1fr);
@@ -2514,8 +2793,23 @@ tbody tr:hover{
 
 }
 
-
 @media(max-width:1000px){
+
+    .analytics-layout{
+
+        grid-template-columns:1fr;
+
+    }
+
+    .welcome-illustration{
+
+        width:210px;
+
+    }
+
+}
+
+@media(max-width:900px){
 
     .app{
 
@@ -2542,72 +2836,68 @@ tbody tr:hover{
 
     }
 
+    .menu-label{
+
+        grid-column:
+            1 / -1;
+
+    }
+
     .sidebar-bottom{
 
         display:none;
 
     }
 
-    .hero-visual{
+}
+
+@media(max-width:700px){
+
+    .summary-grid{
+
+        grid-template-columns:1fr;
+
+    }
+
+    .welcome{
+
+        padding:
+            25px 22px;
+
+    }
+
+    .welcome h2{
+
+        font-size:26px;
+
+    }
+
+    .welcome-illustration{
 
         display:none;
 
     }
 
-    .analytics{
+    .filter-section{
 
-        grid-template-columns:1fr;
-
-    }
-
-}
-
-
-@media(max-width:700px){
-
-    .topbar{
-
-        align-items:flex-start;
-
-        flex-direction:column;
-
-    }
-
-    .clock-box{
-
-        text-align:left;
-
-    }
-
-    .navigation{
-
-        grid-template-columns:1fr;
-
-    }
-
-    .hero{
-
-        padding:25px;
-
-    }
-
-    .hero h2{
-
-        font-size:29px;
-
-    }
-
-    .cards{
-
-        grid-template-columns:1fr;
+        padding:17px;
 
     }
 
     .filters{
 
+        flex-direction:column;
+
         align-items:stretch;
 
-        flex-direction:column;
+    }
+
+    .field,
+    .field.search{
+
+        width:100%;
+
+        min-width:0;
 
     }
 
@@ -2621,16 +2911,61 @@ tbody tr:hover{
 
 }
 
+@media(max-width:650px){
+
+    .topbar{
+
+        align-items:flex-start;
+
+        flex-direction:column;
+
+    }
+
+    .clock-box{
+
+        width:100%;
+
+    }
+
+    .navigation{
+
+        grid-template-columns:1fr;
+
+    }
+
+    .menu-label{
+
+        grid-column:auto;
+
+    }
+
+    .chart-area{
+
+        gap:6px;
+
+    }
+
+    .chart-bar{
+
+        width:75%;
+
+    }
+
+    .table-card{
+
+        padding:15px;
+
+    }
+
+}
+
 </style>
 
 </head>
 
-
 <body>
 
-
 <div class="app">
-
 
 <!-- =====================================================
      SIDEBAR
@@ -2638,18 +2973,16 @@ tbody tr:hover{
 
 <aside class="sidebar">
 
-
     <div class="sidebar-header">
 
         <div class="logo-container">
 
             <img
-                src="Logo.png"
+                src="../Logo.png"
                 alt="Logo Asistencia QR"
             >
 
         </div>
-
 
         <div class="sidebar-title">
 
@@ -2665,12 +2998,11 @@ tbody tr:hover{
 
     </div>
 
-
-    <div class="sidebar-line"></div>
-
+    <div class="sidebar-line">
+        <span></span>
+    </div>
 
     <nav class="navigation">
-
 
         <div class="menu-section">
 
@@ -2681,7 +3013,6 @@ tbody tr:hover{
                 NAVEGACIÓN
 
             </div>
-
 
             <a
                 href="dashboard.php"
@@ -2706,7 +3037,6 @@ tbody tr:hover{
 
         </div>
 
-
         <div class="menu-section">
 
             <div class="menu-label">
@@ -2716,7 +3046,6 @@ tbody tr:hover{
                 GESTIÓN ACADÉMICA
 
             </div>
-
 
             <a
                 href="curso_estudiantes.php"
@@ -2730,7 +3059,7 @@ tbody tr:hover{
                 </div>
 
                 <span>
-                    Cursos + estudiantes
+                    Cursos
                 </span>
 
                 <span class="nav-arrow">
@@ -2741,7 +3070,6 @@ tbody tr:hover{
 
         </div>
 
-
         <div class="menu-section">
 
             <div class="menu-label">
@@ -2751,7 +3079,6 @@ tbody tr:hover{
                 PERSONAS
 
             </div>
-
 
             <a
                 href="docentes.php"
@@ -2773,7 +3100,6 @@ tbody tr:hover{
                 </span>
 
             </a>
-
 
             <a
                 href="usuarios.php"
@@ -2798,7 +3124,6 @@ tbody tr:hover{
 
         </div>
 
-
         <div class="menu-section">
 
             <div class="menu-label">
@@ -2808,7 +3133,6 @@ tbody tr:hover{
                 CONTROL
 
             </div>
-
 
             <a
                 href="asistencia.php"
@@ -2822,7 +3146,7 @@ tbody tr:hover{
                 </div>
 
                 <span>
-                    Asistencia QR
+                    Asistencia
                 </span>
 
                 <span class="nav-arrow">
@@ -2830,7 +3154,6 @@ tbody tr:hover{
                 </span>
 
             </a>
-
 
             <a
                 href="restaurante.php"
@@ -2853,7 +3176,6 @@ tbody tr:hover{
 
             </a>
 
-
             <a
                 href="reportes.php"
                 class="nav-link"
@@ -2874,36 +3196,38 @@ tbody tr:hover{
                 </span>
 
             </a>
-            
+
         </div>
 
     </nav>
 
-
     <div class="sidebar-bottom">
-
 
         <div class="profile-card">
 
             <div class="profile-avatar">
 
-                <?= htmlspecialchars($inicial) ?>
+                <?= htmlspecialchars(
+                    $iniciales
+                ) ?>
 
             </div>
-
 
             <div class="profile-info">
 
                 <strong>
-                    <?= htmlspecialchars($primerNombre) ?>
+
+                    <?= htmlspecialchars(
+                        $nombreUsuario
+                    ) ?>
+
                 </strong>
 
                 <small>
-                    Administrador
+                    ADMINISTRADOR
                 </small>
 
             </div>
-
 
             <div class="profile-status">
                 ●
@@ -2911,10 +3235,10 @@ tbody tr:hover{
 
         </div>
 
-
         <a
-            href="../logout.php"
+            href="../auth/logout.php"
             class="logout"
+
             onclick="
                 return confirm(
                     '¿Deseas cerrar tu sesión?'
@@ -2928,15 +3252,15 @@ tbody tr:hover{
 
             </div>
 
-            Cerrar sesión
+            <span>
+                Cerrar sesión
+            </span>
 
         </a>
 
     </div>
 
-
 </aside>
-
 
 <!-- =====================================================
      MAIN
@@ -2944,11 +3268,7 @@ tbody tr:hover{
 
 <main class="main">
 
-
-<!-- TOPBAR -->
-
 <header class="topbar">
-
 
     <div class="page-info">
 
@@ -2968,77 +3288,96 @@ tbody tr:hover{
 
     </div>
 
-
     <div class="clock-box">
 
-        <div
-            class="clock"
-            id="liveClock"
-        >
-            --:--:--
+        <div class="clock-icon">
+
+            <i class="bi bi-clock"></i>
+
         </div>
 
-        <div class="clock-date">
+        <div>
 
-            <?= date('d/m/Y') ?>
+            <div
+                class="clock-time"
+                id="reloj"
+            >
+
+                <?= $horaActual ?>
+
+            </div>
+
+            <div class="clock-date">
+
+                <?= $fechaActual ?>
+
+            </div>
 
         </div>
 
     </div>
 
-
 </header>
 
+<!-- =====================================================
+     WELCOME
+====================================================== -->
 
-<!-- HERO -->
+<section class="welcome">
 
-<section class="hero">
+    <div class="welcome-content">
 
+        <div class="welcome-tag">
 
-    <div class="hero-content">
-
-
-        <div class="eyebrow">
-
-            <span></span>
+            <i class="bi bi-egg-fried"></i>
 
             SERVICIO DE ALIMENTACIÓN
 
         </div>
 
-
         <h2>
 
-            Control de
+            Control del
             <span>
                 restaurante
             </span>
 
         </h2>
 
-
         <p>
 
             Supervisa los registros de alimentación
-            de los estudiantes, consulta el historial
-            y analiza la actividad del servicio desde
+            de los estudiantes, consulta la actividad
+            del servicio y revisa el historial desde
             un único espacio administrativo.
 
         </p>
 
     </div>
 
+    <div class="restaurant-illustration">
 
-    <div class="hero-visual">
+        <div class="restaurant-glow"></div>
 
-        <div class="orbit">
+        <div class="restaurant-float one">
 
-            <span class="orbit-dot"></span>
+            <i class="bi bi-check-lg"></i>
 
         </div>
 
+        <div class="restaurant-float two">
 
-        <div class="plate">
+            <i class="bi bi-stars"></i>
+
+        </div>
+
+        <div class="restaurant-float three">
+
+            <i class="bi bi-heart-fill"></i>
+
+        </div>
+
+        <div class="restaurant-plate">
 
             <i class="bi bi-egg-fried"></i>
 
@@ -3046,326 +3385,304 @@ tbody tr:hover{
 
     </div>
 
-
 </section>
 
+<!-- =====================================================
+     RESUMEN
+====================================================== -->
 
-<!-- INDICADORES -->
+<section class="summary-grid">
 
-<div class="section-heading">
+    <div class="summary-item">
 
-    <h3>
-        Resumen del servicio
-    </h3>
-
-    <span>
-        Información actualizada
-    </span>
-
-</div>
-
-
-<section class="cards">
-
-
-    <div class="card mint">
-
-        <div class="card-icon">
+        <div class="summary-icon">
 
             <i class="bi bi-clipboard2-check"></i>
 
         </div>
 
-        <strong>
-            <?= formatoNumero($totalRegistros) ?>
-        </strong>
+        <div class="summary-text">
 
-        <span>
-            Registros totales
-        </span>
+            <span>
+                Registros totales
+            </span>
+
+            <strong>
+                <?= formatoNumero(
+                    $totalRegistros
+                ) ?>
+            </strong>
+
+        </div>
 
     </div>
 
+    <div class="summary-item">
 
-    <div class="card blue">
-
-        <div class="card-icon">
+        <div class="summary-icon">
 
             <i class="bi bi-calendar-check"></i>
 
         </div>
 
-        <strong>
-            <?= formatoNumero($totalHoy) ?>
-        </strong>
+        <div class="summary-text">
 
-        <span>
-            Registros de hoy
-        </span>
+            <span>
+                Registros de hoy
+            </span>
 
-    </div>
-
-
-    <div class="card gold">
-
-        <div class="card-icon">
-
-            <i class="bi bi-check-circle"></i>
+            <strong>
+                <?= formatoNumero(
+                    $totalHoy
+                ) ?>
+            </strong>
 
         </div>
 
-        <strong>
-            <?= formatoNumero($totalRegistrados) ?>
-        </strong>
-
-        <span>
-            Servicios registrados
-        </span>
-
     </div>
 
+    <div class="summary-item">
 
-    <div class="card coral">
+        <div class="summary-icon">
 
-        <div class="card-icon">
-
-            <i class="bi bi-dash-circle"></i>
+            <i class="bi bi-check-circle-fill"></i>
 
         </div>
 
-        <strong>
-            <?= formatoNumero($totalNoRegistrados) ?>
-        </strong>
+        <div class="summary-text">
 
-        <span>
-            No registrados
-        </span>
+            <span>
+                Servicios registrados
+            </span>
+
+            <strong>
+                <?= formatoNumero(
+                    $totalRegistrados
+                ) ?>
+            </strong>
+
+        </div>
 
     </div>
 
+    <div class="summary-item">
+
+        <div class="summary-icon">
+
+            <i class="bi bi-dash-circle-fill"></i>
+
+        </div>
+
+        <div class="summary-text">
+
+            <span>
+                No registrados
+            </span>
+
+            <strong>
+                <?= formatoNumero(
+                    $totalNoRegistrados
+                ) ?>
+            </strong>
+
+        </div>
+
+    </div>
 
 </section>
 
+<!-- =====================================================
+     ANALÍTICA
+====================================================== -->
 
-<!-- ANALÍTICA -->
+<section class="analytics-layout">
 
-<div class="section-heading">
+    <div class="chart-card">
 
-    <h3>
-        Actividad del restaurante
-    </h3>
-
-    <span>
-        Últimos 7 días
-    </span>
-
-</div>
-
-
-<section class="analytics">
-
-
-    <div class="panel">
-
-
-        <div class="panel-header">
+        <div class="section-heading">
 
             <div>
 
-                <strong>
-                    Consumo semanal
-                </strong>
+                <h3>
+                    Actividad del restaurante
+                </h3>
 
-                <small>
-                    Registros con estado registrado
-                </small>
+                <p>
+                    Registros registrados durante los últimos 7 días
+                </p>
 
             </div>
 
+            <div class="week-label">
 
-            <div>
+                <i class="bi bi-calendar3"></i>
 
-                <div class="week-total">
+                <?= formatoNumero(
+                    $totalSemana
+                ) ?>
 
-                    <?= formatoNumero($totalSemana) ?>
-
-                </div>
+                registros
 
             </div>
 
         </div>
 
+        <div class="chart-area">
 
-        <div class="chart">
+            <?php
 
+            $maxGrafica = 1;
 
-            <?php foreach (
-                $estadisticas
-                as $dato
-            ): ?>
-
-
-                <?php
-
-                $altura = 0;
-
-                if ($maxRegistros > 0) {
-
-                    $altura =
-                        (
-                            $dato['cantidad']
-                            /
-                            $maxRegistros
-                        ) * 100;
-                }
+            foreach (
+                $grafica as $dia
+            ) {
 
                 if (
-                    $dato['cantidad'] > 0
-                    &&
-                    $altura < 7
+                    $dia['total']
+                    >
+                    $maxGrafica
                 ) {
 
-                    $altura = 7;
+                    $maxGrafica =
+                        $dia['total'];
+
                 }
 
-                ?>
+            }
 
+            foreach (
+                $grafica as $dia
+            ):
 
-                <div class="column">
+                $altura =
+                    (
+                        $dia['total']
+                        /
+                        $maxGrafica
+                    )
+                    * 100;
 
+            ?>
 
-                    <div class="value">
+                <div class="chart-column">
+
+                    <div class="chart-value">
 
                         <?= formatoNumero(
-                            $dato['cantidad']
+                            $dia['total']
                         ) ?>
 
                     </div>
 
-
-                    <div class="bar-area">
+                    <div class="chart-bar-wrapper">
 
                         <div
-                            class="bar"
+                            class="chart-bar"
                             style="
                                 height:
-                                <?= $altura ?>%;
+                                <?= max(
+                                    7,
+                                    $altura
+                                ) ?>%;
+                            "
+                            title="
+                                <?= htmlspecialchars(
+                                    $dia['dia']
+                                ) ?>:
+                                <?= $dia['total'] ?>
+                                registros
                             "
                         ></div>
 
                     </div>
 
-
-                    <div class="day">
+                    <div class="chart-day">
 
                         <?= htmlspecialchars(
-                            $dato['dia']
+                            $dia['dia']
                         ) ?>
 
                     </div>
 
-
                 </div>
-
 
             <?php endforeach; ?>
 
-
         </div>
-
 
     </div>
 
+    <!-- RESUMEN DEL SERVICIO -->
 
-    <div class="panel">
+    <div class="today-card">
 
+        <h3>
+            Estado del servicio
+        </h3>
 
-        <div class="panel-header">
+        <p>
+            Resumen actual del restaurante
+        </p>
 
-            <div>
+        <div class="service-list">
 
-                <strong>
-                    Estado del servicio
-                </strong>
+            <div class="service-row">
 
-                <small>
-                    Resumen actual
-                </small>
+                <div class="service-info">
 
-            </div>
-
-        </div>
-
-
-        <div class="summary-list">
-
-
-            <div class="summary-item">
-
-                <div class="summary-left">
-
-                    <i class="bi bi-people"></i>
+                    <i class="bi bi-people-fill"></i>
 
                     Registros de hoy
 
                 </div>
 
                 <strong>
-
                     <?= formatoNumero(
                         $totalHoy
                     ) ?>
-
                 </strong>
 
             </div>
 
+            <div class="service-row">
 
-            <div class="summary-item">
+                <div class="service-info">
 
-                <div class="summary-left">
-
-                    <i class="bi bi-check2-circle"></i>
+                    <i class="bi bi-check-circle-fill"></i>
 
                     Registrados
 
                 </div>
 
                 <strong>
-
                     <?= formatoNumero(
                         $totalRegistrados
                     ) ?>
-
                 </strong>
 
             </div>
 
+            <div class="service-row">
 
-            <div class="summary-item">
+                <div class="service-info">
 
-                <div class="summary-left">
-
-                    <i class="bi bi-x-circle"></i>
+                    <i class="bi bi-x-circle-fill"></i>
 
                     No registrados
 
                 </div>
 
                 <strong>
-
                     <?= formatoNumero(
                         $totalNoRegistrados
                     ) ?>
-
                 </strong>
 
             </div>
 
+            <div class="service-row">
 
-            <div class="summary-item">
-
-                <div class="summary-left">
+                <div class="service-info">
 
                     <i class="bi bi-activity"></i>
 
@@ -3374,154 +3691,152 @@ tbody tr:hover{
                 </div>
 
                 <strong>
-
                     <?= formatoNumero(
                         $totalSemana
                     ) ?>
-
                 </strong>
 
             </div>
 
-
         </div>
 
-
     </div>
-
 
 </section>
 
+<!-- =====================================================
+     FILTROS
+====================================================== -->
 
-<!-- FILTROS -->
+<section class="filter-section">
 
-<div class="section-heading">
+    <div class="filter-title">
 
-    <h3>
-        Historial de registros
-    </h3>
+        <h3>
+            Historial de registros
+        </h3>
 
-    <span>
-        <?= formatoNumero($totalFiltrado) ?>
-        resultados encontrados
-    </span>
+        <span>
 
-</div>
+            <?= formatoNumero(
+                $totalFiltrado
+            ) ?>
 
+            resultados encontrados
 
-<form
-    method="GET"
-    class="filters"
->
-
-
-    <div class="field search">
-
-        <label>
-            ESTUDIANTE
-        </label>
-
-        <input
-            type="text"
-            name="busqueda"
-            placeholder="Nombre, apellido o documento..."
-            value="<?= htmlspecialchars(
-                $busqueda
-            ) ?>"
-        >
+        </span>
 
     </div>
 
-
-    <div class="field">
-
-        <label>
-            FECHA
-        </label>
-
-        <input
-            type="date"
-            name="fecha"
-            value="<?= htmlspecialchars(
-                $fechaFiltro
-            ) ?>"
-        >
-
-    </div>
-
-
-    <div class="field">
-
-        <label>
-            ESTADO
-        </label>
-
-        <select name="estado">
-
-            <option value="">
-                Todos
-            </option>
-
-            <option
-                value="REGISTRADO"
-                <?= $estadoFiltro === 'REGISTRADO'
-                    ? 'selected'
-                    : '' ?>
-            >
-                Registrado
-            </option>
-
-            <option
-                value="NO_REGISTRADO"
-                <?= $estadoFiltro === 'NO_REGISTRADO'
-                    ? 'selected'
-                    : '' ?>
-            >
-                No registrado
-            </option>
-
-        </select>
-
-    </div>
-
-
-    <button
-        type="submit"
-        class="btn"
+    <form
+        method="GET"
+        class="filters"
     >
 
-        <i class="bi bi-search"></i>
+        <div class="field search">
 
-        Buscar
+            <label>
+                ESTUDIANTE
+            </label>
 
-    </button>
+            <input
+                type="text"
+                name="busqueda"
+                placeholder="Nombre, apellido o documento..."
+                value="<?= htmlspecialchars(
+                    $busqueda
+                ) ?>"
+            >
 
+        </div>
 
-    <a
-        href="restaurante.php"
-        class="btn secondary"
-    >
+        <div class="field">
 
-        <i class="bi bi-arrow-counterclockwise"></i>
+            <label>
+                FECHA
+            </label>
 
-        Limpiar
+            <input
+                type="date"
+                name="fecha"
+                value="<?= htmlspecialchars(
+                    $fechaFiltro
+                ) ?>"
+            >
 
-    </a>
+        </div>
 
+        <div class="field">
 
-</form>
+            <label>
+                ESTADO
+            </label>
 
+            <select name="estado">
 
-<!-- TABLA -->
+                <option value="">
+                    Todos
+                </option>
 
-<section class="table-panel">
+                <option
+                    value="REGISTRADO"
+                    <?= $estadoFiltro === 'REGISTRADO'
+                        ? 'selected'
+                        : '' ?>
+                >
+                    Registrado
+                </option>
 
+                <option
+                    value="NO_REGISTRADO"
+                    <?= $estadoFiltro === 'NO_REGISTRADO'
+                        ? 'selected'
+                        : '' ?>
+                >
+                    No registrado
+                </option>
 
-    <div class="table-top">
+            </select>
 
-        <strong>
+        </div>
+
+        <button
+            type="submit"
+            class="btn"
+        >
+
+            <i class="bi bi-search"></i>
+
+            Buscar
+
+        </button>
+
+        <a
+            href="restaurante.php"
+            class="btn secondary"
+        >
+
+            <i class="bi bi-arrow-counterclockwise"></i>
+
+            Limpiar
+
+        </a>
+
+    </form>
+
+</section>
+
+<!-- =====================================================
+     TABLA
+====================================================== -->
+
+<section class="table-card">
+
+    <div class="table-header">
+
+        <h3>
             Registros del restaurante
-        </strong>
+        </h3>
 
         <span>
 
@@ -3533,21 +3848,16 @@ tbody tr:hover{
 
     </div>
 
-
     <div class="table-wrapper">
 
-
         <?php if (
-            $resultadoHistorial
-            &&
+            $resultadoHistorial &&
             mysqli_num_rows(
                 $resultadoHistorial
             ) > 0
         ): ?>
 
-
             <table>
-
 
                 <thead>
 
@@ -3559,6 +3869,10 @@ tbody tr:hover{
 
                         <th>
                             DOCUMENTO
+                        </th>
+
+                        <th>
+                            CURSO
                         </th>
 
                         <th>
@@ -3581,9 +3895,7 @@ tbody tr:hover{
 
                 </thead>
 
-
                 <tbody>
-
 
                 <?php while (
                     $registro =
@@ -3591,7 +3903,6 @@ tbody tr:hover{
                         $resultadoHistorial
                     )
                 ): ?>
-
 
                     <?php
 
@@ -3603,7 +3914,6 @@ tbody tr:hover{
                             $registro['apellidos']
                         );
 
-
                     $inicialEstudiante =
                         strtoupper(
                             substr(
@@ -3613,7 +3923,6 @@ tbody tr:hover{
                             )
                         );
 
-
                     $esRegistrado =
                         $registro['estado']
                         ===
@@ -3621,15 +3930,13 @@ tbody tr:hover{
 
                     ?>
 
-
                     <tr>
 
+                        <!-- ESTUDIANTE -->
 
                         <td>
 
-
                             <div class="student">
-
 
                                 <div class="student-avatar">
 
@@ -3638,7 +3945,6 @@ tbody tr:hover{
                                     ) ?>
 
                                 </div>
-
 
                                 <div class="student-name">
 
@@ -3663,12 +3969,11 @@ tbody tr:hover{
 
                                 </div>
 
-
                             </div>
-
 
                         </td>
 
+                        <!-- DOCUMENTO -->
 
                         <td>
 
@@ -3680,6 +3985,25 @@ tbody tr:hover{
 
                         </td>
 
+                        <!-- CURSO -->
+
+                        <td>
+
+                            <span class="course">
+
+                                <?= htmlspecialchars(
+                                    $registro[
+                                        'nombre_curso'
+                                    ]
+                                    ??
+                                    'Sin curso'
+                                ) ?>
+
+                            </span>
+
+                        </td>
+
+                        <!-- FECHA -->
 
                         <td>
 
@@ -3694,25 +4018,34 @@ tbody tr:hover{
 
                         </td>
 
+                        <!-- HORA -->
 
                         <td>
 
-                            <?= htmlspecialchars(
-                                $registro[
-                                    'hora'
-                                ]
-                            ) ?>
+                            <span class="time">
+
+                                <?= htmlspecialchars(
+                                    date(
+                                        'h:i:s A',
+                                        strtotime(
+                                            $registro[
+                                                'hora'
+                                            ]
+                                        )
+                                    )
+                                ) ?>
+
+                            </span>
 
                         </td>
 
+                        <!-- ESTADO -->
 
                         <td>
-
 
                             <?php if (
                                 $esRegistrado
                             ): ?>
-
 
                                 <span
                                     class="
@@ -3730,9 +4063,7 @@ tbody tr:hover{
 
                                 </span>
 
-
                             <?php else: ?>
-
 
                                 <span
                                     class="
@@ -3750,15 +4081,13 @@ tbody tr:hover{
 
                                 </span>
 
-
                             <?php endif; ?>
-
 
                         </td>
 
+                        <!-- OBSERVACIÓN -->
 
                         <td>
-
 
                             <div
                                 class="observation"
@@ -3781,24 +4110,17 @@ tbody tr:hover{
 
                             </div>
 
-
                         </td>
-
 
                     </tr>
 
-
                 <?php endwhile; ?>
-
 
                 </tbody>
 
-
             </table>
 
-
         <?php else: ?>
-
 
             <div class="empty">
 
@@ -3814,73 +4136,78 @@ tbody tr:hover{
 
             </div>
 
-
         <?php endif; ?>
-
 
     </div>
 
-
 </section>
-
 
 </main>
 
-
 </div>
-
 
 <script>
 
 /* =========================================================
-   RELOJ EN TIEMPO REAL
+   RELOJ
 ========================================================= */
 
-function actualizarHora(){
+function actualizarReloj()
+{
 
-    const ahora = new Date();
+    const ahora =
+        new Date();
 
     const horas =
         String(
             ahora.getHours()
-        ).padStart(2,'0');
+        ).padStart(
+            2,
+            '0'
+        );
 
     const minutos =
         String(
             ahora.getMinutes()
-        ).padStart(2,'0');
+        ).padStart(
+            2,
+            '0'
+        );
 
     const segundos =
         String(
             ahora.getSeconds()
-        ).padStart(2,'0');
-
+        ).padStart(
+            2,
+            '0'
+        );
 
     const reloj =
         document.getElementById(
-            'liveClock'
+            'reloj'
         );
 
-
-    if(reloj){
+    if (reloj) {
 
         reloj.textContent =
-            `${horas}:${minutos}:${segundos}`;
+            horas
+            + ':'
+            + minutos
+            + ':'
+            + segundos;
 
     }
 
 }
 
-
-actualizarHora();
+actualizarReloj();
 
 setInterval(
-    actualizarHora,
+    actualizarReloj,
     1000
 );
 
 </script>
-
 
 </body>
 

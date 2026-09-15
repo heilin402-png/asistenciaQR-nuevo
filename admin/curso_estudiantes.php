@@ -1,4 +1,5 @@
 <?php
+
 session_start();
 
 if (!isset($_SESSION['id_usuario'])) {
@@ -6,9 +7,19 @@ if (!isset($_SESSION['id_usuario'])) {
     exit();
 }
 
+/* =========================================================
+   VERIFICAR QUE SEA ADMINISTRADOR
+========================================================= */
+
+if (!isset($_SESSION['id_rol']) || (int)$_SESSION['id_rol'] !== 1) {
+    header("Location: ../login.php");
+    exit();
+}
+
 require_once "../config/conexion.php";
 
 date_default_timezone_set('America/Bogota');
+
 
 /* =========================================================
    INFORMACIÓN DEL USUARIO
@@ -35,6 +46,7 @@ $fechaActual = date('d/m/Y');
 $mensaje = '';
 $tipoMensaje = '';
 
+
 /* =========================================================
    CURSO SELECCIONADO
 ========================================================= */
@@ -44,6 +56,7 @@ $idCursoSeleccionado = isset($_GET['curso'])
     : 0;
 
 $cursoSeleccionado = null;
+
 
 /* =========================================================
    AGREGAR CURSO
@@ -90,6 +103,217 @@ if (isset($_POST['agregar_curso'])) {
     }
 }
 
+/* =========================================================
+   CAMBIAR ESTADO DEL CURSO
+========================================================= */
+
+if (isset($_POST['cambiar_estado_curso'])) {
+
+    $idCurso = (int)($_POST['id_curso'] ?? 0);
+
+    $nuevoEstado =
+        ($_POST['nuevo_estado'] ?? '') === 'ACTIVO'
+        ? 'ACTIVO'
+        : 'INACTIVO';
+
+    if ($idCurso > 0) {
+
+        $sql = "UPDATE cursos
+                SET estado = ?
+                WHERE id_curso = ?";
+
+        $stmt = mysqli_prepare($conexion, $sql);
+
+        if ($stmt) {
+
+            mysqli_stmt_bind_param(
+                $stmt,
+                "si",
+                $nuevoEstado,
+                $idCurso
+            );
+
+            if (mysqli_stmt_execute($stmt)) {
+
+                $mensaje =
+                    $nuevoEstado === 'ACTIVO'
+                    ? 'Curso activado correctamente.'
+                    : 'Curso desactivado correctamente.';
+
+                $tipoMensaje = 'success';
+
+                /*
+                 * Si estamos viendo este curso,
+                 * mantenemos seleccionado el mismo curso.
+                 */
+                $idCursoSeleccionado = $idCurso;
+
+            } else {
+
+                $mensaje = 'No fue posible cambiar el estado del curso.';
+                $tipoMensaje = 'error';
+            }
+
+            mysqli_stmt_close($stmt);
+        }
+    }
+}
+
+/* =========================================================
+   ASIGNAR DIRECTOR DE CURSO
+========================================================= */
+
+if (isset($_POST['asignar_director'])) {
+
+    $idCurso = (int)($_POST['id_curso'] ?? 0);
+    $idUsuario = (int)($_POST['id_usuario'] ?? 0);
+
+    if ($idCurso > 0 && $idUsuario > 0) {
+
+        /* =====================================================
+           VERIFICAR QUE EL USUARIO SEA DOCENTE ACTIVO
+        ===================================================== */
+
+        $sqlVerificar = "
+            SELECT id_usuario
+            FROM usuarios
+            WHERE id_usuario = ?
+              AND id_rol = 2
+              AND estado = 'ACTIVO'
+            LIMIT 1
+        ";
+
+        $stmtVerificar = mysqli_prepare(
+            $conexion,
+            $sqlVerificar
+        );
+
+        $docenteValido = false;
+
+        if ($stmtVerificar) {
+
+            mysqli_stmt_bind_param(
+                $stmtVerificar,
+                "i",
+                $idUsuario
+            );
+
+            mysqli_stmt_execute($stmtVerificar);
+
+            $resultadoVerificar =
+                mysqli_stmt_get_result($stmtVerificar);
+
+            if (
+                $resultadoVerificar &&
+                mysqli_num_rows($resultadoVerificar) > 0
+            ) {
+                $docenteValido = true;
+            }
+
+            mysqli_stmt_close($stmtVerificar);
+        }
+
+        if ($docenteValido) {
+
+            /* =================================================
+               ELIMINAR DIRECTOR ANTERIOR DEL CURSO
+            ================================================= */
+
+            $sqlEliminar = "
+                DELETE FROM director_curso
+                WHERE id_curso = ?
+            ";
+
+            $stmtEliminar = mysqli_prepare(
+                $conexion,
+                $sqlEliminar
+            );
+
+            if ($stmtEliminar) {
+
+                mysqli_stmt_bind_param(
+                    $stmtEliminar,
+                    "i",
+                    $idCurso
+                );
+
+                mysqli_stmt_execute($stmtEliminar);
+
+                mysqli_stmt_close($stmtEliminar);
+            }
+
+
+            /* =================================================
+               GUARDAR NUEVO DIRECTOR
+            ================================================= */
+
+            $sqlInsertar = "
+                INSERT INTO director_curso
+                (
+                    id_curso,
+                    id_usuario
+                )
+                VALUES (?, ?)
+            ";
+
+            $stmtInsertar = mysqli_prepare(
+                $conexion,
+                $sqlInsertar
+            );
+
+            if ($stmtInsertar) {
+
+                mysqli_stmt_bind_param(
+                    $stmtInsertar,
+                    "ii",
+                    $idCurso,
+                    $idUsuario
+                );
+
+                if (mysqli_stmt_execute($stmtInsertar)) {
+
+                    $mensaje =
+                        'Director de curso asignado correctamente.';
+
+                    $tipoMensaje = 'success';
+
+                    $idCursoSeleccionado = $idCurso;
+
+                } else {
+
+                    $mensaje =
+                        'Error al guardar el director: ' .
+                        mysqli_error($conexion);
+
+                    $tipoMensaje = 'error';
+                }
+
+                mysqli_stmt_close($stmtInsertar);
+
+            } else {
+
+                $mensaje =
+                    'No fue posible preparar la asignación del director.';
+
+                $tipoMensaje = 'error';
+            }
+
+        } else {
+
+            $mensaje =
+                'El docente seleccionado no es válido.';
+
+            $tipoMensaje = 'error';
+        }
+
+    } else {
+
+        $mensaje =
+            'Selecciona un docente válido.';
+
+        $tipoMensaje = 'error';
+    }
+}
 /* =========================================================
    AGREGAR ESTUDIANTE
 ========================================================= */
@@ -154,6 +378,7 @@ if (isset($_POST['agregar_estudiante'])) {
         $tipoMensaje = 'error';
     }
 }
+
 
 /* =========================================================
    EDITAR ESTUDIANTE
@@ -220,6 +445,7 @@ if (isset($_POST['editar_estudiante'])) {
     }
 }
 
+
 /* =========================================================
    CAMBIAR ESTADO DEL ESTUDIANTE
 ========================================================= */
@@ -275,6 +501,7 @@ if (isset($_POST['cambiar_estado_estudiante'])) {
     }
 }
 
+
 /* =========================================================
    ELIMINAR ESTUDIANTE
 ========================================================= */
@@ -318,6 +545,7 @@ if (isset($_POST['eliminar_estudiante'])) {
         }
     }
 }
+
 
 /* =========================================================
    OBTENER CURSO SELECCIONADO
@@ -368,6 +596,70 @@ if ($idCursoSeleccionado > 0) {
 }
 
 /* =========================================================
+   OBTENER DOCENTES ACTIVOS
+========================================================= */
+
+$docentes = [];
+
+$sqlDocentes = "
+    SELECT
+        id_usuario,
+        nombre,
+        apellido
+    FROM usuarios
+    WHERE id_rol = 2
+      AND estado = 'ACTIVO'
+    ORDER BY
+        apellido ASC,
+        nombre ASC
+";
+
+$resultadoDocentes =
+    mysqli_query(
+        $conexion,
+        $sqlDocentes
+    );
+
+if ($resultadoDocentes) {
+
+    while ($docente = mysqli_fetch_assoc($resultadoDocentes)) {
+        $docentes[] = $docente;
+    }
+} 
+/* =========================================================
+   OBTENER DIRECTORES DE CURSO
+========================================================= */
+
+$directoresCurso = [];
+
+$sqlDirectores = "
+    SELECT
+        dc.id_curso,
+        dc.id_usuario,
+        u.nombre,
+        u.apellido
+    FROM director_curso dc
+    INNER JOIN usuarios u
+        ON u.id_usuario = dc.id_usuario
+    WHERE u.id_rol = 2
+      AND u.estado = 'ACTIVO'
+";
+
+$resultadoDirectores = mysqli_query(
+    $conexion,
+    $sqlDirectores
+);
+
+if ($resultadoDirectores) {
+
+    while ($director = mysqli_fetch_assoc($resultadoDirectores)) {
+
+        $directoresCurso[
+            (int)$director['id_curso']
+        ] = $director;
+    }
+}
+/* =========================================================
    OBTENER TODOS LOS CURSOS
 ========================================================= */
 
@@ -400,10 +692,10 @@ $resultadoCursos =
 if ($resultadoCursos) {
 
     while ($fila = mysqli_fetch_assoc($resultadoCursos)) {
-
         $cursos[] = $fila;
     }
 }
+
 
 /* =========================================================
    OBTENER ESTUDIANTES DEL CURSO
@@ -421,11 +713,8 @@ if ($cursoSeleccionado) {
                             apellidos,
                             estado,
                             fecha_creacion
-
                        FROM estudiantes
-
                        WHERE id_curso = ?
-
                        ORDER BY
                             nombres ASC,
                             apellidos ASC";
@@ -456,13 +745,13 @@ if ($cursoSeleccionado) {
                 $resultadoEstudiantes
             )
         ) {
-
             $estudiantes[] = $fila;
         }
 
         mysqli_stmt_close($stmtEstudiantes);
     }
 }
+
 
 /* =========================================================
    ESTADÍSTICAS
@@ -476,11 +765,8 @@ $totalInactivos = 0;
 foreach ($cursos as $curso) {
 
     if ($curso['estado'] === 'ACTIVO') {
-
         $totalActivos++;
-
     } else {
-
         $totalInactivos++;
     }
 }
@@ -488,7 +774,6 @@ foreach ($cursos as $curso) {
 ?>
 
 <!DOCTYPE html>
-
 <html lang="es">
 
 <head>
@@ -508,15 +793,6 @@ foreach ($cursos as $curso) {
 >
 
 <style>
-
-.btn-qr{
-    color:#087d92;
-    background:rgba(24,216,206,.12);
-}
-
-.btn-qr:hover{
-    background:rgba(24,216,206,.20);
-}
 
 :root{
     --aqua:#18d8ce;
@@ -569,7 +845,6 @@ body{
     gap:18px;
 
     min-height:100vh;
-
     padding:18px;
 }
 
@@ -811,11 +1086,6 @@ body{
     background:rgba(245,190,70,.14);
 }
 
-.nav-icon.audit{
-    color:#7569c2;
-    background:rgba(133,121,210,.11);
-}
-
 .nav-arrow{
     margin-left:auto;
     color:#a1b8be;
@@ -935,8 +1205,7 @@ body{
 
     border-radius:10px;
 
-    background:
-        rgba(242,143,150,.08);
+    background:rgba(242,143,150,.08);
 }
 
 .main{
@@ -1134,24 +1403,14 @@ body{
 
 .alert.success{
     color:#217d68;
-
-    background:
-        rgba(66,205,161,.10);
-
-    border:
-        1px solid
-        rgba(66,205,161,.18);
+    background:rgba(66,205,161,.10);
+    border:1px solid rgba(66,205,161,.18);
 }
 
 .alert.error{
     color:#a35e68;
-
-    background:
-        rgba(242,143,150,.10);
-
-    border:
-        1px solid
-        rgba(242,143,150,.18);
+    background:rgba(242,143,150,.10);
+    border:1px solid rgba(242,143,150,.18);
 }
 
 .mini-stats{
@@ -1241,9 +1500,7 @@ body{
 
     padding:0 16px 0 45px;
 
-    border:
-        1px solid
-        rgba(180,215,220,.48);
+    border:1px solid rgba(180,215,220,.48);
 
     border-radius:15px;
 
@@ -1251,8 +1508,7 @@ body{
 
     color:#416f7e;
 
-    background:
-        rgba(255,255,255,.70);
+    background:rgba(255,255,255,.70);
 
     font-family:inherit;
     font-size:13px;
@@ -1265,26 +1521,28 @@ body{
     grid-template-columns:
         repeat(
             auto-fill,
-            minmax(235px,1fr)
+            minmax(260px,1fr)
         );
 
-    gap:15px;
+    gap:16px;
+
+    align-items:start;
 }
 
 .course-card{
     position:relative;
     overflow:hidden;
 
-    padding:18px;
+    width:100%;
+    min-height:0;
 
-    border:
-        1px solid
-        rgba(255,255,255,.92);
+    padding:17px;
+
+    border:1px solid rgba(255,255,255,.92);
 
     border-radius:20px;
 
-    background:
-        rgba(255,255,255,.70);
+    background:rgba(255,255,255,.70);
 
     box-shadow:
         0 12px 30px
@@ -1399,8 +1657,7 @@ body{
 
     color:#668995;
 
-    background:
-        rgba(24,216,206,.055);
+    background:rgba(24,216,206,.055);
 
     font-size:11px;
     font-weight:800;
@@ -1418,8 +1675,129 @@ body{
     gap:8px;
     margin-top:14px;
 }
+.course-actions form{
+    width:100%;
+    margin:0;
+}
+
+.course-actions form .course-action{
+    width:100%;
+}
+
+.director-box{
+    margin-top:13px;
+    padding:10px 12px;
+
+    border-radius:14px;
+
+    background:rgba(133,121,210,.055);
+    border:1px solid rgba(133,121,210,.10);
+}
+
+.director-label{
+    display:flex;
+    align-items:center;
+    gap:6px;
+
+    margin-bottom:7px;
+
+    color:#6f67b5;
+    font-size:10px;
+    font-weight:950;
+}
+
+.director-label i{
+    font-size:13px;
+}
+
+.director-form{
+    display:flex;
+    align-items:center;
+    gap:6px;
+}
+
+.director-select{
+    flex:1;
+    min-width:0;
+
+    height:34px;
+    padding:0 9px;
+
+    border:1px solid rgba(180,215,220,.42);
+    border-radius:9px;
+
+    outline:none;
+
+    color:#527b87;
+    background:rgba(255,255,255,.82);
+
+    font-family:inherit;
+    font-size:10px;
+    font-weight:750;
+}
+
+.director-button{
+    width:34px;
+    height:34px;
+
+    display:flex;
+    align-items:center;
+    justify-content:center;
+
+    flex-shrink:0;
+
+    border:none;
+    border-radius:9px;
+
+    color:#fff;
+
+    background:
+        linear-gradient(
+            135deg,
+            #8579d2,
+            #6f67b8
+        );
+
+    cursor:pointer;
+    transition:.2s;
+}
+
+.director-button:hover{
+    transform:translateY(-1px);
+}
+
+.director-current{
+    margin-top:6px;
+
+    color:#7d9299;
+
+    font-size:9px;
+    font-weight:750;
+}
+
+.director-current strong{
+    color:#6b62ad;
+}
+
+.course-actions{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+
+    gap:8px;
+    margin-top:13px;
+}
+
+.course-actions form{
+    width:100%;
+    margin:0;
+}
+
+.course-actions form .course-action{
+    width:100%;
+}
 
 .course-action{
+    width:100%;
     min-height:39px;
 
     display:flex;
@@ -1447,6 +1825,24 @@ body{
 
 .action-view:hover{
     background:rgba(24,216,206,.17);
+}
+
+.action-status-active{
+    color:#b45e68;
+    background:rgba(242,143,150,.10);
+}
+
+.action-status-active:hover{
+    background:rgba(242,143,150,.17);
+}
+
+.action-status-inactive{
+    color:#218b6c;
+    background:rgba(66,205,161,.11);
+}
+
+.action-status-inactive:hover{
+    background:rgba(66,205,161,.18);
 }
 
 .back-link{
@@ -1480,9 +1876,7 @@ body{
             rgba(133,121,210,.06)
         );
 
-    border:
-        1px solid
-        rgba(255,255,255,.90);
+    border:1px solid rgba(255,255,255,.90);
 }
 
 .selected-icon{
@@ -1497,8 +1891,7 @@ body{
 
     color:#087d92;
 
-    background:
-        rgba(24,216,206,.11);
+    background:rgba(24,216,206,.11);
 
     font-size:23px;
 }
@@ -1535,8 +1928,7 @@ body{
 }
 
 .students-table thead{
-    background:
-        rgba(24,216,206,.055);
+    background:rgba(24,216,206,.055);
 }
 
 .students-table th{
@@ -1559,9 +1951,7 @@ body{
     text-align:center;
     vertical-align:middle;
 
-    border-top:
-        1px solid
-        rgba(120,170,180,.08);
+    border-top:1px solid rgba(120,170,180,.08);
 
     color:#527b87;
 
@@ -1684,8 +2074,9 @@ body{
     font-size:11px;
 }
 
+
 /* =========================================================
-   MODALES GENERALES
+   MODALES
 ========================================================= */
 
 .modal{
@@ -1701,8 +2092,7 @@ body{
 
     padding:20px;
 
-    background:
-        rgba(32,89,109,.18);
+    background:rgba(32,89,109,.18);
 
     backdrop-filter:blur(7px);
 }
@@ -1719,21 +2109,17 @@ body{
 
     padding:26px;
 
-    border:
-        1px solid
-        rgba(255,255,255,.95);
+    border:1px solid rgba(255,255,255,.95);
 
     border-radius:24px;
 
-    background:
-        rgba(255,255,255,.96);
+    background:rgba(255,255,255,.96);
 
     box-shadow:
         0 30px 80px
         rgba(55,113,129,.18);
 
-    animation:
-        modalEntrada .22s ease;
+    animation:modalEntrada .22s ease;
 }
 
 @keyframes modalEntrada{
@@ -1772,8 +2158,7 @@ body{
 
     color:#7998a1;
 
-    background:
-        rgba(120,170,180,.08);
+    background:rgba(120,170,180,.08);
 
     cursor:pointer;
     font-size:18px;
@@ -1801,16 +2186,13 @@ body{
 
     outline:none;
 
-    border:
-        1px solid
-        rgba(180,215,220,.50);
+    border:1px solid rgba(180,215,220,.50);
 
     border-radius:12px;
 
     color:#416f7e;
 
-    background:
-        rgba(248,253,252,.90);
+    background:rgba(248,253,252,.90);
 
     font-family:inherit;
 
@@ -1835,8 +2217,7 @@ body{
 
     color:#6f9099;
 
-    background:
-        rgba(120,170,180,.09);
+    background:rgba(120,170,180,.09);
 
     font-family:inherit;
     font-size:11px;
@@ -1868,6 +2249,7 @@ body{
     cursor:pointer;
 }
 
+
 /* =========================================================
    MODAL QR
 ========================================================= */
@@ -1888,9 +2270,7 @@ body{
             rgba(239,252,250,.98)
         );
 
-    border:
-        1px solid
-        rgba(255,255,255,.98);
+    border:1px solid rgba(255,255,255,.98);
 
     box-shadow:
         0 35px 90px
@@ -1930,8 +2310,7 @@ body{
 
     color:#668995;
 
-    background:
-        rgba(255,255,255,.75);
+    background:rgba(255,255,255,.75);
 
     cursor:pointer;
 
@@ -1959,8 +2338,7 @@ body{
 
     color:#087d92;
 
-    background:
-        rgba(255,255,255,.78);
+    background:rgba(255,255,255,.78);
 
     box-shadow:
         0 10px 25px
@@ -2006,9 +2384,7 @@ body{
 
     background:#fff;
 
-    border:
-        1px solid
-        rgba(180,215,220,.30);
+    border:1px solid rgba(180,215,220,.30);
 
     box-shadow:
         0 18px 45px
@@ -2048,12 +2424,9 @@ body{
 
     border-radius:13px;
 
-    background:
-        rgba(255,255,255,.72);
+    background:rgba(255,255,255,.72);
 
-    border:
-        1px solid
-        rgba(180,215,220,.20);
+    border:1px solid rgba(180,215,220,.20);
 }
 
 .qr-data-label{
@@ -2163,14 +2536,13 @@ body{
 
 .qr-close-action{
     color:#6f9099;
-
-    background:
-        rgba(120,170,180,.09);
+    background:rgba(120,170,180,.09);
 }
 
 .hidden{
     display:none !important;
 }
+
 
 /* =========================================================
    RESPONSIVE
@@ -2193,6 +2565,13 @@ body{
 }
 
 @media(max-width:700px){
+    .director-form{
+        width:100%;
+    }
+
+    .course-actions{
+    grid-template-columns:1fr;
+}
 
     .topbar{
         align-items:flex-start;
@@ -2257,249 +2636,230 @@ body{
 
 <aside class="sidebar">
 
-<div class="sidebar-header">
+    <div class="sidebar-header">
 
-<div class="logo-container">
+        <div class="logo-container">
 
-<img
-    src="Logo.png"
-    alt="Logo Asistencia QR"
->
+            <!-- RUTA CORREGIDA -->
+            <img
+                src="../Logo.png"
+                alt="Logo Asistencia QR"
+            >
 
-</div>
+        </div>
 
-<div class="sidebar-title">
+        <div class="sidebar-title">
 
-<strong>ASISTENCIA QR</strong>
+            <strong>ASISTENCIA QR</strong>
 
-<small>Sistema académico</small>
+            <small>Sistema académico</small>
 
-</div>
+        </div>
 
-</div>
+    </div>
 
-<div class="sidebar-line">
-    <span></span>
-</div>
 
-<nav class="navigation">
+    <div class="sidebar-line">
+        <span></span>
+    </div>
 
-<div class="menu-section">
 
-<div class="menu-label">
+    <nav class="navigation">
 
-<span class="label-line"></span>
+        <div class="menu-section">
 
-NAVEGACIÓN
+            <div class="menu-label">
+                <span class="label-line"></span>
+                NAVEGACIÓN
+            </div>
 
-</div>
+            <a
+                href="dashboard.php"
+                class="nav-link"
+            >
 
-<a
-    href="dashboard.php"
-    class="nav-link"
->
+                <div class="nav-icon">
+                    <i class="bi bi-grid-1x2"></i>
+                </div>
 
-<div class="nav-icon">
+                <span>Inicio</span>
 
-<i class="bi bi-grid-1x2"></i>
+                <span class="nav-arrow">→</span>
 
-</div>
+            </a>
 
-<span>Inicio</span>
+        </div>
 
-<span class="nav-arrow">→</span>
 
-</a>
+        <div class="menu-section">
 
-</div>
+            <div class="menu-label">
+                <span class="label-line"></span>
+                GESTIÓN ACADÉMICA
+            </div>
 
-<div class="menu-section">
+            <a
+                href="curso_estudiantes.php"
+                class="nav-link active"
+            >
 
-<div class="menu-label">
+                <div class="nav-icon academic">
+                    <i class="bi bi-mortarboard"></i>
+                </div>
 
-<span class="label-line"></span>
+                <span>Cursos</span>
 
-GESTIÓN ACADÉMICA
+                <span class="nav-arrow">→</span>
 
-</div>
+            </a>
 
-<a
-    href="curso_estudiantes.php"
-    class="nav-link active"
->
+        </div>
 
-<div class="nav-icon academic">
 
-<i class="bi bi-mortarboard"></i>
+        <div class="menu-section">
 
-</div>
+            <div class="menu-label">
+                <span class="label-line"></span>
+                PERSONAS
+            </div>
 
-<span>Cursos</span>
+            <a
+                href="docentes.php"
+                class="nav-link"
+            >
 
-<span class="nav-arrow">→</span>
+                <div class="nav-icon people">
+                    <i class="bi bi-person-workspace"></i>
+                </div>
 
-</a>
+                <span>Docentes</span>
 
-</div>
+                <span class="nav-arrow">→</span>
 
-<div class="menu-section">
+            </a>
 
-<div class="menu-label">
 
-<span class="label-line"></span>
+            <a
+                href="usuarios.php"
+                class="nav-link"
+            >
 
-PERSONAS
+                <div class="nav-icon people">
+                    <i class="bi bi-person-badge"></i>
+                </div>
 
-</div>
+                <span>Usuarios</span>
 
-<a
-    href="docentes.php"
-    class="nav-link"
->
+                <span class="nav-arrow">→</span>
 
-<div class="nav-icon people">
+            </a>
 
-<i class="bi bi-person-workspace"></i>
+        </div>
 
-</div>
 
-<span>Docentes</span>
+        <div class="menu-section">
 
-<span class="nav-arrow">→</span>
+            <div class="menu-label">
+                <span class="label-line"></span>
+                CONTROL
+            </div>
 
-</a>
+            <a
+                href="asistencia.php"
+                class="nav-link"
+            >
 
-<a
-    href="usuarios.php"
-    class="nav-link"
->
+                <div class="nav-icon qr-icon">
+                    <i class="bi bi-qr-code-scan"></i>
+                </div>
 
-<div class="nav-icon people">
+                <span>Asistencia</span>
 
-<i class="bi bi-person-badge"></i>
+                <span class="nav-arrow">→</span>
 
-</div>
+            </a>
 
-<span>Usuarios</span>
 
-<span class="nav-arrow">→</span>
+            <a
+                href="restaurante.php"
+                class="nav-link"
+            >
 
-</a>
+                <div class="nav-icon restaurant">
+                    <i class="bi bi-egg-fried"></i>
+                </div>
 
-</div>
+                <span>Restaurante</span>
 
-<div class="menu-section">
+                <span class="nav-arrow">→</span>
 
-<div class="menu-label">
+            </a>
 
-<span class="label-line"></span>
 
-CONTROL
+            <a
+                href="reportes.php"
+                class="nav-link"
+            >
 
-</div>
+                <div class="nav-icon reports">
+                    <i class="bi bi-bar-chart-line"></i>
+                </div>
 
-<a
-    href="asistencia.php"
-    class="nav-link"
->
+                <span>Reportes</span>
 
-<div class="nav-icon qr-icon">
+                <span class="nav-arrow">→</span>
 
-<i class="bi bi-qr-code-scan"></i>
+            </a>
 
-</div>
+        </div>
 
-<span>Asistencia</span>
+    </nav>
 
-<span class="nav-arrow">→</span>
 
-</a>
+    <div class="sidebar-bottom">
 
-<a
-    href="restaurante.php"
-    class="nav-link"
->
+        <div class="profile-card">
 
-<div class="nav-icon restaurant">
+            <div class="profile-avatar">
+                <?= htmlspecialchars($iniciales) ?>
+            </div>
 
-<i class="bi bi-egg-fried"></i>
+            <div class="profile-info">
 
-</div>
+                <strong>
+                    <?= htmlspecialchars($nombreUsuario) ?>
+                </strong>
 
-<span>Restaurante</span>
+                <small>
+                    ADMINISTRADOR
+                </small>
 
-<span class="nav-arrow">→</span>
+            </div>
 
-</a>
+            <div class="profile-status">
+                ●
+            </div>
 
-<a
-    href="reportes.php"
-    class="nav-link"
->
+        </div>
 
-<div class="nav-icon reports">
 
-<i class="bi bi-bar-chart-line"></i>
+        <a
+            href="../auth/logout.php"
+            class="logout"
+        >
 
-</div>
+            <div class="logout-icon">
+                <i class="bi bi-box-arrow-left"></i>
+            </div>
 
-<span>Reportes</span>
+            <span>Cerrar sesión</span>
 
-<span class="nav-arrow">→</span>
+        </a>
 
-</a>
-
-
-</div>
-
-</nav>
-
-<div class="sidebar-bottom">
-
-<div class="profile-card">
-
-<div class="profile-avatar">
-
-<?= htmlspecialchars($iniciales) ?>
-
-</div>
-
-<div class="profile-info">
-
-<strong>
-<?= htmlspecialchars($nombreUsuario) ?>
-</strong>
-
-<small>
-ADMINISTRADOR
-</small>
-
-</div>
-
-<div class="profile-status">
-●
-</div>
-
-</div>
-
-<a
-    href="../auth/logout.php"
-    class="logout"
->
-
-<div class="logout-icon">
-
-<i class="bi bi-box-arrow-left"></i>
-
-</div>
-
-<span>Cerrar sesión</span>
-
-</a>
-
-</div>
+    </div>
 
 </aside>
+
 
 <!-- =====================================================
      MAIN
@@ -2507,663 +2867,813 @@ ADMINISTRADOR
 
 <main class="main">
 
-<header class="topbar">
+    <header class="topbar">
 
-<div class="page-info">
+        <div class="page-info">
 
-<div class="page-indicator"></div>
+            <div class="page-indicator"></div>
 
-<div class="page-title">
+            <div class="page-title">
 
-<h1>
-Cursos
-</h1>
+                <h1>
+                    Cursos
+                </h1>
 
-<p>
-Administración de cursos y estudiantes
-</p>
+                <p>
+                    Administración de cursos y estudiantes
+                </p>
+
+            </div>
+
+        </div>
+
+
+        <div class="clock-box">
+
+            <div class="clock-icon">
+                <i class="bi bi-clock"></i>
+            </div>
+
+            <div>
+
+                <div
+                    class="clock-time"
+                    id="reloj"
+                >
+                    <?= $horaActual ?>
+                </div>
+
+                <div class="clock-date">
+                    <?= $fechaActual ?>
+                </div>
+
+            </div>
+
+        </div>
+
+    </header>
+
+
+    <section class="content-card">
+
+        <?php if ($mensaje !== ''): ?>
+
+            <div
+                class="alert <?= htmlspecialchars($tipoMensaje) ?>"
+            >
+
+                <i class="bi
+                    <?= $tipoMensaje === 'success'
+                        ? 'bi-check-circle-fill'
+                        : 'bi-exclamation-circle-fill'
+                    ?>">
+                </i>
+
+                <?= htmlspecialchars($mensaje) ?>
+
+            </div>
+
+        <?php endif; ?>
+
+
+        <?php if (!$cursoSeleccionado): ?>
+
+            <div class="content-heading">
+
+                <div class="heading-left">
+
+                    <h2>
+                        Seleccionar curso
+                    </h2>
+
+                    <p>
+                        Selecciona un curso para administrar sus estudiantes.
+                    </p>
+
+                </div>
+
+
+                <button
+                    type="button"
+                    class="btn-primary"
+                    onclick="abrirModalCurso()"
+                >
+
+                    <i class="bi bi-plus-lg"></i>
+
+                    Agregar curso
+
+                </button>
+
+            </div>
+
+
+            <div class="mini-stats">
+
+                <div class="mini-stat">
+
+                    <div class="mini-stat-icon">
+                        <i class="bi bi-mortarboard-fill"></i>
+                    </div>
+
+                    <div>
+
+                        <span>
+                            Total cursos
+                        </span>
+
+                        <strong>
+                            <?= $totalCursos ?>
+                        </strong>
+
+                    </div>
+
+                </div>
+
+
+                <div class="mini-stat">
+
+                    <div class="mini-stat-icon">
+                        <i class="bi bi-check-circle-fill"></i>
+                    </div>
+
+                    <div>
+
+                        <span>
+                            Cursos activos
+                        </span>
+
+                        <strong>
+                            <?= $totalActivos ?>
+                        </strong>
+
+                    </div>
+
+                </div>
+
+
+                <div class="mini-stat">
+
+                    <div class="mini-stat-icon">
+                        <i class="bi bi-pause-circle-fill"></i>
+                    </div>
+
+                    <div>
+
+                        <span>
+                            Cursos inactivos
+                        </span>
+
+                        <strong>
+                            <?= $totalInactivos ?>
+                        </strong>
+
+                    </div>
+
+                </div>
+
+            </div>
+
+
+            <div class="search-box">
+
+                <i class="bi bi-search"></i>
+
+                <input
+                    type="text"
+                    id="buscadorCursos"
+                    placeholder="Buscar curso por número..."
+                    autocomplete="off"
+                >
+
+            </div>
+
+
+            <div
+                class="course-grid"
+                id="listaCursos"
+            >
+
+                <?php foreach ($cursos as $curso): ?>
+
+                    <div
+                        class="course-card"
+                        data-curso="<?= htmlspecialchars(
+                            strtolower($curso['nombre_curso'])
+                        ) ?>"
+                    >
+
+                        <div class="course-top">
+
+                            <div class="course-number">
+
+                                <?= htmlspecialchars(
+                                    $curso['nombre_curso']
+                                ) ?>
+
+                            </div>
+
+
+                            <div
+                                class="course-status
+                                <?= $curso['estado'] === 'ACTIVO'
+                                    ? 'active'
+                                    : 'inactive'
+                                ?>"
+                            >
+
+                                <span class="status-dot"></span>
+
+                                <?= htmlspecialchars(
+                                    $curso['estado']
+                                ) ?>
+
+                            </div>
+
+                        </div>
+
+
+                        <div class="course-name">
+
+                            Curso
+                            <?= htmlspecialchars(
+                                $curso['nombre_curso']
+                            ) ?>
+
+                        </div>
+
+
+                        <div class="course-students">
+
+                            <i class="bi bi-people-fill"></i>
+
+                            <?= (int)$curso['total_estudiantes'] ?>
+
+                            estudiante<?= (int)$curso['total_estudiantes'] === 1
+                                ? ''
+                                : 's'
+                            ?>
+
+                        </div>
+                       <div class="director-box">
+
+    <div class="director-label">
+
+        <i class="bi bi-person-badge-fill"></i>
+
+        Director de curso
+
+    </div>
+
+    <form
+        method="POST"
+        class="director-form"
+    >
+
+        <input
+            type="hidden"
+            name="id_curso"
+            value="<?= (int)$curso['id_curso'] ?>"
+        >
+
+        <select
+            name="id_usuario"
+            class="director-select"
+            required
+        >
+
+            <option value="">
+                Seleccionar docente...
+            </option>
+
+            <?php foreach ($docentes as $docente): ?>
+
+                <?php
+                $directorActual =
+                    $directoresCurso[
+                        (int)$curso['id_curso']
+                    ]['id_usuario']
+                    ?? 0;
+                ?>
+
+                <option
+                    value="<?= (int)$docente['id_usuario'] ?>"
+                    <?= (int)$directorActual ===
+                        (int)$docente['id_usuario']
+                        ? 'selected'
+                        : ''
+                    ?>
+                >
+
+                    <?= htmlspecialchars(
+                        trim(
+                            $docente['nombre']
+                            . ' '
+                            . $docente['apellido']
+                        )
+                    ) ?>
+
+                </option>
+
+            <?php endforeach; ?>
+
+        </select>
+
+        <button
+            type="submit"
+            name="asignar_director"
+            class="director-button"
+            title="Guardar director"
+        >
+
+            <i class="bi bi-check-lg"></i>
+
+        </button>
+
+    </form>
+
+
+    <?php
+    $directorActual =
+        $directoresCurso[
+            (int)$curso['id_curso']
+        ] ?? null;
+    ?>
+
+    <?php if ($directorActual): ?>
+
+        <div class="director-current">
+
+            Director actual:
+
+            <strong>
+                <?= htmlspecialchars(
+                    trim(
+                        $directorActual['nombre']
+                        . ' '
+                        . $directorActual['apellido']
+                    )
+                ) ?>
+            </strong>
+
+        </div>
+
+    <?php endif; ?>
 
 </div>
 
-</div>
+   <div class="course-actions">
 
-<div class="clock-box">
+    <a
+        href="curso_estudiantes.php?curso=<?= (int)$curso['id_curso'] ?>"
+        class="course-action action-view"
+    >
 
-<div class="clock-icon">
+        <i class="bi bi-people"></i>
 
-<i class="bi bi-clock"></i>
+        Ver estudiantes
 
-</div>
+    </a>
 
-<div>
 
-<div
-    class="clock-time"
-    id="reloj"
->
+    <form
+        method="POST"
+        style="margin:0;"
+        onsubmit="return confirmarEstadoCurso('<?= htmlspecialchars($curso['estado'], ENT_QUOTES, 'UTF-8') ?>');"
+    >
 
-<?= $horaActual ?>
+        <input
+            type="hidden"
+            name="id_curso"
+            value="<?= (int)$curso['id_curso'] ?>"
+        >
 
-</div>
+        <input
+            type="hidden"
+            name="nuevo_estado"
+            value="<?= $curso['estado'] === 'ACTIVO' ? 'INACTIVO' : 'ACTIVO' ?>"
+        >
 
-<div class="clock-date">
+        <button
+            type="submit"
+            name="cambiar_estado_curso"
+            class="course-action <?= $curso['estado'] === 'ACTIVO'
+                ? 'action-status-active'
+                : 'action-status-inactive'
+            ?>"
+        >
 
-<?= $fechaActual ?>
+            <i class="bi <?= $curso['estado'] === 'ACTIVO'
+                ? 'bi-pause-circle'
+                : 'bi-play-circle'
+            ?>"></i>
 
-</div>
+            <?= $curso['estado'] === 'ACTIVO'
+                ? 'Desactivar curso'
+                : 'Activar curso'
+            ?>
 
-</div>
+        </button>
 
-</div>
-
-</header>
-
-<section class="content-card">
-
-<?php if ($mensaje !== ''): ?>
-
-<div
-    class="alert <?= htmlspecialchars($tipoMensaje) ?>"
->
-
-<i class="bi
-<?= $tipoMensaje === 'success'
-    ? 'bi-check-circle-fill'
-    : 'bi-exclamation-circle-fill'
-?>"></i>
-
-<?= htmlspecialchars($mensaje) ?>
-
-</div>
-
-<?php endif; ?>
-
-<?php if (!$cursoSeleccionado): ?>
-
-<div class="content-heading">
-
-<div class="heading-left">
-
-<h2>
-Seleccionar curso
-</h2>
-
-<p>
-Selecciona un curso para administrar sus estudiantes.
-</p>
+    </form>
 
 </div>
 
-<button
-    type="button"
-    class="btn-primary"
-    onclick="abrirModalCurso()"
->
 
-<i class="bi bi-plus-lg"></i>
+                        
 
-Agregar curso
+                    </div>
 
-</button>
+                <?php endforeach; ?>
 
-</div>
+            </div>
 
-<div class="mini-stats">
 
-<div class="mini-stat">
+            <?php if (count($cursos) === 0): ?>
 
-<div class="mini-stat-icon">
+                <div class="empty-students">
 
-<i class="bi bi-mortarboard-fill"></i>
+                    <i class="bi bi-mortarboard"></i>
 
-</div>
+                    <strong>
+                        No hay cursos registrados
+                    </strong>
 
-<div>
+                    <p>
+                        Agrega el primer curso usando el botón "Agregar curso".
+                    </p>
 
-<span>
-Total cursos
-</span>
+                </div>
 
-<strong>
-<?= $totalCursos ?>
-</strong>
+            <?php endif; ?>
 
-</div>
 
-</div>
+        <?php else: ?>
 
-<div class="mini-stat">
 
-<div class="mini-stat-icon">
+            <a
+                href="curso_estudiantes.php"
+                class="back-link"
+            >
 
-<i class="bi bi-check-circle-fill"></i>
+                <i class="bi bi-arrow-left"></i>
 
-</div>
+                Volver a cursos
 
-<div>
+            </a>
 
-<span>
-Cursos activos
-</span>
 
-<strong>
-<?= $totalActivos ?>
-</strong>
+            <div class="selected-course">
 
-</div>
+                <div class="selected-icon">
 
-</div>
+                    <i class="bi bi-mortarboard-fill"></i>
 
-<div class="mini-stat">
+                </div>
 
-<div class="mini-stat-icon">
 
-<i class="bi bi-pause-circle-fill"></i>
+                <div class="selected-info">
 
-</div>
+                    <strong>
 
-<div>
+                        Curso
+                        <?= htmlspecialchars(
+                            $cursoSeleccionado['nombre_curso']
+                        ) ?>
 
-<span>
-Cursos inactivos
-</span>
+                    </strong>
 
-<strong>
-<?= $totalInactivos ?>
-</strong>
+                    <small>
 
-</div>
+                        <?= count($estudiantes) ?>
 
-</div>
+                        estudiante<?= count($estudiantes) === 1
+                            ? ''
+                            : 's'
+                        ?>
 
-</div>
+                        ·
 
-<div class="search-box">
+                        <?= htmlspecialchars(
+                            $cursoSeleccionado['estado']
+                        ) ?>
 
-<i class="bi bi-search"></i>
+                        ·
 
-<input
-    type="text"
-    id="buscadorCursos"
-    placeholder="Buscar curso por número..."
-    autocomplete="off"
->
+                        Creado el
 
-</div>
+                        <?= htmlspecialchars(
+                            date(
+                                'd/m/Y',
+                                strtotime(
+                                    $cursoSeleccionado['fecha_creacion']
+                                )
+                            )
+                        ) ?>
 
-<div
-    class="course-grid"
-    id="listaCursos"
->
+                    </small>
 
-<?php foreach ($cursos as $curso): ?>
+                </div>
 
-<div
-    class="course-card"
-    data-curso="<?= htmlspecialchars(
-        strtolower($curso['nombre_curso'])
-    ) ?>"
->
 
-<div class="course-top">
+                <div
+                    class="course-status
+                    <?= $cursoSeleccionado['estado'] === 'ACTIVO'
+                        ? 'active'
+                        : 'inactive'
+                    ?>"
+                >
 
-<div class="course-number">
+                    <span class="status-dot"></span>
 
-<?= htmlspecialchars(
-    $curso['nombre_curso']
-) ?>
+                    <?= htmlspecialchars(
+                        $cursoSeleccionado['estado']
+                    ) ?>
 
-</div>
+                </div>
 
-<div
-    class="course-status
-    <?= $curso['estado'] === 'ACTIVO'
-        ? 'active'
-        : 'inactive'
-    ?>"
->
+            </div>
 
-<span class="status-dot"></span>
 
-<?= htmlspecialchars(
-    $curso['estado']
-) ?>
+            <div
+                style="
+                    display:flex;
+                    justify-content:flex-end;
+                    margin-bottom:18px;
+                "
+            >
 
-</div>
+                <button
+                    type="button"
+                    class="btn-primary"
+                    onclick="abrirModalEstudiante()"
+                >
 
-</div>
+                    <i class="bi bi-person-plus-fill"></i>
 
-<div class="course-name">
+                    Agregar estudiante
 
-Curso
-<?= htmlspecialchars(
-    $curso['nombre_curso']
-) ?>
+                </button>
 
-</div>
+            </div>
 
-<div class="course-students">
 
-<i class="bi bi-people-fill"></i>
+            <?php if (count($estudiantes) > 0): ?>
 
-<?= (int)$curso['total_estudiantes'] ?>
+                <div class="table-wrapper">
 
-estudiante<?= (int)$curso['total_estudiantes'] === 1
-    ? ''
-    : 's'
-?>
+                    <table class="students-table">
 
-</div>
+                        <thead>
 
-<div class="course-actions">
+                            <tr>
 
-<a
-    href="curso_estudiantes.php?curso=<?= (int)$curso['id_curso'] ?>"
-    class="course-action action-view"
->
+                                <th>DOCUMENTO</th>
 
-<i class="bi bi-people"></i>
+                                <th>ESTUDIANTE</th>
 
-Ver estudiantes
+                                <th>ESTADO</th>
 
-</a>
+                                <th>REGISTRO</th>
 
-</div>
+                                <th>ACCIONES</th>
 
-</div>
+                            </tr>
 
-<?php endforeach; ?>
+                        </thead>
 
-</div>
 
-<?php if (count($cursos) === 0): ?>
+                        <tbody>
 
-<div class="empty-students">
+                            <?php foreach ($estudiantes as $estudiante): ?>
 
-<i class="bi bi-mortarboard"></i>
+                                <tr>
 
-<strong>
-No hay cursos registrados
-</strong>
+                                    <td>
+                                        <?= htmlspecialchars(
+                                            $estudiante['documento']
+                                        ) ?>
+                                    </td>
 
-<p>
-Agrega el primer curso usando el botón "Agregar curso".
-</p>
 
-</div>
+                                    <td class="student-name">
 
-<?php endif; ?>
+                                        <?= htmlspecialchars(
+                                            trim(
+                                                $estudiante['nombres']
+                                                . ' '
+                                                . $estudiante['apellidos']
+                                            )
+                                        ) ?>
 
-<?php else: ?>
+                                    </td>
 
-<a
-    href="curso_estudiantes.php"
-    class="back-link"
->
 
-<i class="bi bi-arrow-left"></i>
+                                    <td>
 
-Volver a cursos
+                                        <span
+                                            class="student-badge
+                                            <?= $estudiante['estado'] === 'ACTIVO'
+                                                ? 'active'
+                                                : 'inactive'
+                                            ?>"
+                                        >
 
-</a>
+                                            <span class="status-dot"></span>
 
-<div class="selected-course">
+                                            <?= htmlspecialchars(
+                                                $estudiante['estado']
+                                            ) ?>
 
-<div class="selected-icon">
+                                        </span>
 
-<i class="bi bi-mortarboard-fill"></i>
+                                    </td>
 
-</div>
 
-<div class="selected-info">
+                                    <td>
 
-<strong>
+                                        <?= htmlspecialchars(
+                                            date(
+                                                'd/m/Y',
+                                                strtotime(
+                                                    $estudiante['fecha_creacion']
+                                                )
+                                            )
+                                        ) ?>
 
-Curso
-<?= htmlspecialchars(
-    $cursoSeleccionado['nombre_curso']
-) ?>
+                                    </td>
 
-</strong>
 
-<small>
+                                    <td>
 
-<?= count($estudiantes) ?>
+                                        <div class="table-actions">
 
-estudiante<?= count($estudiantes) === 1
-    ? ''
-    : 's'
-?>
 
-·
+                                            <!-- VER QR -->
 
-<?= htmlspecialchars(
-    $cursoSeleccionado['estado']
-) ?>
+                                            <a
+                                                href="qr_estudiante.php?id=<?= (int)$estudiante['id_estudiante'] ?>"
+                                                class="table-btn btn-qr"
+                                            >
 
-·
+                                                <i class="bi bi-qr-code"></i>
 
-Creado el
-<?= htmlspecialchars(
-    date(
-        'd/m/Y',
-        strtotime(
-            $cursoSeleccionado['fecha_creacion']
-        )
-    )
-) ?>
+                                                Ver QR
 
-</small>
+                                            </a>
 
-</div>
 
-<div
-    class="course-status
-    <?= $cursoSeleccionado['estado'] === 'ACTIVO'
-        ? 'active'
-        : 'inactive'
-    ?>"
->
+                                            <!-- EDITAR -->
 
-<span class="status-dot"></span>
+                                            <button
+                                                type="button"
+                                                class="table-btn btn-edit"
+                                                onclick='editarEstudiante(<?= json_encode(
+                                                    $estudiante,
+                                                    JSON_HEX_TAG |
+                                                    JSON_HEX_APOS |
+                                                    JSON_HEX_QUOT |
+                                                    JSON_HEX_AMP
+                                                ) ?>)'
+                                            >
 
-<?= htmlspecialchars(
-    $cursoSeleccionado['estado']
-) ?>
+                                                <i class="bi bi-pencil"></i>
 
-</div>
+                                                Editar
 
-</div>
+                                            </button>
 
-<div
-    style="
-        display:flex;
-        justify-content:flex-end;
-        margin-bottom:18px;
-    "
->
 
-<button
-    type="button"
-    class="btn-primary"
-    onclick="abrirModalEstudiante()"
->
+                                            <!-- CAMBIAR ESTADO -->
 
-<i class="bi bi-person-plus-fill"></i>
+                                            <form
+                                                method="POST"
+                                                style="margin:0;"
+                                            >
 
-Agregar estudiante
+                                                <input
+                                                    type="hidden"
+                                                    name="id_estudiante"
+                                                    value="<?= (int)$estudiante['id_estudiante'] ?>"
+                                                >
 
-</button>
+                                                <input
+                                                    type="hidden"
+                                                    name="id_curso"
+                                                    value="<?= (int)$cursoSeleccionado['id_curso'] ?>"
+                                                >
 
-</div>
+                                                <input
+                                                    type="hidden"
+                                                    name="nuevo_estado"
+                                                    value="<?= $estudiante['estado'] === 'ACTIVO'
+                                                        ? 'INACTIVO'
+                                                        : 'ACTIVO'
+                                                    ?>"
+                                                >
 
-<?php if (count($estudiantes) > 0): ?>
+                                                <button
+                                                    type="submit"
+                                                    name="cambiar_estado_estudiante"
+                                                    class="table-btn
+                                                    <?= $estudiante['estado'] === 'ACTIVO'
+                                                        ? 'btn-status-on'
+                                                        : 'btn-status-off'
+                                                    ?>"
+                                                >
 
-<div class="table-wrapper">
+                                                    <i class="bi
+                                                        <?= $estudiante['estado'] === 'ACTIVO'
+                                                            ? 'bi-pause-circle'
+                                                            : 'bi-play-circle'
+                                                        ?>">
+                                                    </i>
 
-<table class="students-table">
+                                                    <?= $estudiante['estado'] === 'ACTIVO'
+                                                        ? 'Desactivar'
+                                                        : 'Activar'
+                                                    ?>
 
-<thead>
+                                                </button>
 
-<tr>
+                                            </form>
 
-<th>
-DOCUMENTO
-</th>
 
-<th>
-ESTUDIANTE
-</th>
+                                            <!-- ELIMINAR -->
 
-<th>
-ESTADO
-</th>
+                                            <form
+                                                method="POST"
+                                                style="margin:0;"
+                                                onsubmit="return confirm('¿Seguro que deseas eliminar este estudiante?');"
+                                            >
 
-<th>
-REGISTRO
-</th>
+                                                <input
+                                                    type="hidden"
+                                                    name="id_estudiante"
+                                                    value="<?= (int)$estudiante['id_estudiante'] ?>"
+                                                >
 
-<th>
-ACCIONES
-</th>
+                                                <input
+                                                    type="hidden"
+                                                    name="id_curso"
+                                                    value="<?= (int)$cursoSeleccionado['id_curso'] ?>"
+                                                >
 
-</tr>
+                                                <button
+                                                    type="submit"
+                                                    name="eliminar_estudiante"
+                                                    class="table-btn btn-delete"
+                                                >
 
-</thead>
+                                                    <i class="bi bi-trash"></i>
 
-<tbody>
+                                                    Eliminar
 
-<?php foreach ($estudiantes as $estudiante): ?>
+                                                </button>
 
-<tr>
+                                            </form>
 
-<td>
+                                        </div>
 
-<?= htmlspecialchars(
-    $estudiante['documento']
-) ?>
+                                    </td>
 
-</td>
+                                </tr>
 
-<td class="student-name">
+                            <?php endforeach; ?>
 
-<?= htmlspecialchars(
-    trim(
-        $estudiante['nombres']
-        . ' '
-        . $estudiante['apellidos']
-    )
-) ?>
+                        </tbody>
 
-</td>
+                    </table>
 
-<td>
+                </div>
 
-<span
-    class="student-badge
-    <?= $estudiante['estado'] === 'ACTIVO'
-        ? 'active'
-        : 'inactive'
-    ?>"
->
 
-<span class="status-dot"></span>
+            <?php else: ?>
 
-<?= htmlspecialchars(
-    $estudiante['estado']
-) ?>
+                <div class="empty-students">
 
-</span>
+                    <i class="bi bi-people"></i>
 
-</td>
+                    <strong>
+                        Este curso todavía no tiene estudiantes
+                    </strong>
 
-<td>
+                    <p>
+                        Agrega estudiantes usando el botón "Agregar estudiante".
+                    </p>
 
-<?= htmlspecialchars(
-    date(
-        'd/m/Y',
-        strtotime(
-            $estudiante['fecha_creacion']
-        )
-    )
-) ?>
+                </div>
 
-</td>
+            <?php endif; ?>
 
-<td>
+        <?php endif; ?>
 
-<div class="table-actions">
-
-<!-- =====================================================
-     BOTÓN VER QR
-===================================================== -->
-
-<a
-    href="qr_estudiante.php?id=<?= (int)$estudiante['id_estudiante'] ?>"
-    class="table-btn btn-qr"
->
-    <i class="bi bi-qr-code"></i>
-    Ver QR
-</a>
-
-<!-- =====================================================
-     EDITAR
-===================================================== -->
-
-<button
-    type="button"
-    class="table-btn btn-edit"
-    onclick='editarEstudiante(
-        <?= json_encode(
-            $estudiante,
-            JSON_HEX_TAG |
-            JSON_HEX_APOS |
-            JSON_HEX_QUOT |
-            JSON_HEX_AMP
-        ) ?>
-    )'
->
-
-<i class="bi bi-pencil"></i>
-
-Editar
-
-</button>
-
-<!-- =====================================================
-     CAMBIAR ESTADO
-===================================================== -->
-
-<form
-    method="POST"
-    style="margin:0;"
->
-
-<input
-    type="hidden"
-    name="id_estudiante"
-    value="<?= (int)$estudiante['id_estudiante'] ?>"
->
-
-<input
-    type="hidden"
-    name="id_curso"
-    value="<?= (int)$cursoSeleccionado['id_curso'] ?>"
->
-
-<input
-    type="hidden"
-    name="nuevo_estado"
-    value="<?= $estudiante['estado'] === 'ACTIVO'
-        ? 'INACTIVO'
-        : 'ACTIVO'
-    ?>"
->
-
-<button
-    type="submit"
-    name="cambiar_estado_estudiante"
-    class="table-btn
-    <?= $estudiante['estado'] === 'ACTIVO'
-        ? 'btn-status-on'
-        : 'btn-status-off'
-    ?>"
->
-
-<i class="bi
-<?= $estudiante['estado'] === 'ACTIVO'
-    ? 'bi-pause-circle'
-    : 'bi-play-circle'
-?>"></i>
-
-<?= $estudiante['estado'] === 'ACTIVO'
-    ? 'Desactivar'
-    : 'Activar'
-?>
-
-</button>
-
-</form>
-
-<!-- =====================================================
-     ELIMINAR
-===================================================== -->
-
-<form
-    method="POST"
-    style="margin:0;"
-    onsubmit="
-        return confirm(
-            '¿Seguro que deseas eliminar este estudiante?'
-        );
-    "
->
-
-<input
-    type="hidden"
-    name="id_estudiante"
-    value="<?= (int)$estudiante['id_estudiante'] ?>"
->
-
-<input
-    type="hidden"
-    name="id_curso"
-    value="<?= (int)$cursoSeleccionado['id_curso'] ?>"
->
-
-<button
-    type="submit"
-    name="eliminar_estudiante"
-    class="table-btn btn-delete"
->
-
-<i class="bi bi-trash"></i>
-
-Eliminar
-
-</button>
-
-</form>
-
-</div>
-
-</td>
-
-</tr>
-
-<?php endforeach; ?>
-
-</tbody>
-
-</table>
-
-</div>
-
-<?php else: ?>
-
-<div class="empty-students">
-
-<i class="bi bi-people"></i>
-
-<strong>
-Este curso todavía no tiene estudiantes
-</strong>
-
-<p>
-Agrega estudiantes usando el botón "Agregar estudiante".
-</p>
-
-</div>
-
-<?php endif; ?>
-
-<?php endif; ?>
-
-</section>
+    </section>
 
 </main>
 
 </div>
+
 
 <!-- =====================================================
      MODAL AGREGAR CURSO
@@ -3174,84 +3684,84 @@ Agrega estudiantes usando el botón "Agregar estudiante".
     id="modalCurso"
 >
 
-<div class="modal-card">
+    <div class="modal-card">
 
-<div class="modal-header">
+        <div class="modal-header">
 
-<h3>
-Agregar curso
-</h3>
+            <h3>
+                Agregar curso
+            </h3>
 
-<button
-    type="button"
-    class="modal-close"
-    onclick="cerrarModalCurso()"
->
+            <button
+                type="button"
+                class="modal-close"
+                onclick="cerrarModalCurso()"
+            >
 
-<i class="bi bi-x-lg"></i>
+                <i class="bi bi-x-lg"></i>
 
-</button>
+            </button>
 
-</div>
+        </div>
 
-<form method="POST">
 
-<div class="form-group">
+        <form method="POST">
 
-<label
-    class="form-label"
-    for="nombreCurso"
->
+            <div class="form-group">
 
-Número del curso
+                <label
+                    class="form-label"
+                    for="nombreCurso"
+                >
+                    Número del curso
+                </label>
 
-</label>
+                <input
+                    type="number"
+                    min="1"
+                    class="form-input"
+                    id="nombreCurso"
+                    name="nombre_curso"
+                    placeholder="Ejemplo: 1104"
+                    required
+                >
 
-<input
-    type="number"
-    min="1"
-    class="form-input"
-    id="nombreCurso"
-    name="nombre_curso"
-    placeholder="Ejemplo: 1104"
-    required
->
+            </div>
 
-</div>
 
-<div class="modal-actions">
+            <div class="modal-actions">
 
-<button
-    type="button"
-    class="btn-cancel"
-    onclick="cerrarModalCurso()"
->
+                <button
+                    type="button"
+                    class="btn-cancel"
+                    onclick="cerrarModalCurso()"
+                >
+                    Cancelar
+                </button>
 
-Cancelar
+                <button
+                    type="submit"
+                    name="agregar_curso"
+                    class="btn-save"
+                >
 
-</button>
+                    <i class="bi bi-check-lg"></i>
 
-<button
-    type="submit"
-    name="agregar_curso"
-    class="btn-save"
->
+                    Crear curso
 
-<i class="bi bi-check-lg"></i>
+                </button>
 
-Crear curso
+            </div>
 
-</button>
+        </form>
 
-</div>
-
-</form>
-
-</div>
+    </div>
 
 </div>
+
 
 <?php if ($cursoSeleccionado): ?>
+
 
 <!-- =====================================================
      MODAL AGREGAR ESTUDIANTE
@@ -3262,131 +3772,129 @@ Crear curso
     id="modalEstudiante"
 >
 
-<div class="modal-card">
+    <div class="modal-card">
 
-<div class="modal-header">
+        <div class="modal-header">
 
-<h3>
-Agregar estudiante
-</h3>
+            <h3>
+                Agregar estudiante
+            </h3>
 
-<button
-    type="button"
-    class="modal-close"
-    onclick="cerrarModalEstudiante()"
->
+            <button
+                type="button"
+                class="modal-close"
+                onclick="cerrarModalEstudiante()"
+            >
 
-<i class="bi bi-x-lg"></i>
+                <i class="bi bi-x-lg"></i>
 
-</button>
+            </button>
 
-</div>
+        </div>
 
-<form method="POST">
 
-<input
-    type="hidden"
-    name="id_curso"
-    value="<?= (int)$cursoSeleccionado['id_curso'] ?>"
->
+        <form method="POST">
 
-<div class="form-group">
+            <input
+                type="hidden"
+                name="id_curso"
+                value="<?= (int)$cursoSeleccionado['id_curso'] ?>"
+            >
 
-<label
-    class="form-label"
-    for="documentoNuevo"
->
 
-Documento
+            <div class="form-group">
 
-</label>
+                <label
+                    class="form-label"
+                    for="documentoNuevo"
+                >
+                    Documento
+                </label>
 
-<input
-    type="text"
-    class="form-input"
-    id="documentoNuevo"
-    name="documento"
-    placeholder="Número de documento"
-    required
->
+                <input
+                    type="text"
+                    class="form-input"
+                    id="documentoNuevo"
+                    name="documento"
+                    placeholder="Número de documento"
+                    required
+                >
 
-</div>
+            </div>
 
-<div class="form-group">
 
-<label
-    class="form-label"
-    for="nombresNuevo"
->
+            <div class="form-group">
 
-Nombres
+                <label
+                    class="form-label"
+                    for="nombresNuevo"
+                >
+                    Nombres
+                </label>
 
-</label>
+                <input
+                    type="text"
+                    class="form-input"
+                    id="nombresNuevo"
+                    name="nombres"
+                    placeholder="Nombres del estudiante"
+                    required
+                >
 
-<input
-    type="text"
-    class="form-input"
-    id="nombresNuevo"
-    name="nombres"
-    placeholder="Nombres del estudiante"
-    required
->
+            </div>
 
-</div>
 
-<div class="form-group">
+            <div class="form-group">
 
-<label
-    class="form-label"
-    for="apellidosNuevo"
->
+                <label
+                    class="form-label"
+                    for="apellidosNuevo"
+                >
+                    Apellidos
+                </label>
 
-Apellidos
+                <input
+                    type="text"
+                    class="form-input"
+                    id="apellidosNuevo"
+                    name="apellidos"
+                    placeholder="Apellidos del estudiante"
+                    required
+                >
 
-</label>
+            </div>
 
-<input
-    type="text"
-    class="form-input"
-    id="apellidosNuevo"
-    name="apellidos"
-    placeholder="Apellidos del estudiante"
-    required
->
 
-</div>
+            <div class="modal-actions">
 
-<div class="modal-actions">
+                <button
+                    type="button"
+                    class="btn-cancel"
+                    onclick="cerrarModalEstudiante()"
+                >
+                    Cancelar
+                </button>
 
-<button
-    type="button"
-    class="btn-cancel"
-    onclick="cerrarModalEstudiante()"
->
+                <button
+                    type="submit"
+                    name="agregar_estudiante"
+                    class="btn-save"
+                >
 
-Cancelar
+                    <i class="bi bi-person-plus"></i>
 
-</button>
+                    Agregar estudiante
 
-<button
-    type="submit"
-    name="agregar_estudiante"
-    class="btn-save"
->
+                </button>
 
-<i class="bi bi-person-plus"></i>
+            </div>
 
-Agregar estudiante
+        </form>
 
-</button>
-
-</div>
-
-</form>
-
-</div>
+    </div>
 
 </div>
+
 
 <!-- =====================================================
      MODAL EDITAR ESTUDIANTE
@@ -3397,137 +3905,135 @@ Agregar estudiante
     id="modalEditarEstudiante"
 >
 
-<div class="modal-card">
+    <div class="modal-card">
 
-<div class="modal-header">
+        <div class="modal-header">
 
-<h3>
-Editar estudiante
-</h3>
+            <h3>
+                Editar estudiante
+            </h3>
 
-<button
-    type="button"
-    class="modal-close"
-    onclick="cerrarModalEditar()"
->
+            <button
+                type="button"
+                class="modal-close"
+                onclick="cerrarModalEditar()"
+            >
 
-<i class="bi bi-x-lg"></i>
+                <i class="bi bi-x-lg"></i>
 
-</button>
+            </button>
 
-</div>
+        </div>
 
-<form method="POST">
 
-<input
-    type="hidden"
-    name="id_estudiante"
-    id="editarId"
->
+        <form method="POST">
 
-<input
-    type="hidden"
-    name="id_curso"
-    value="<?= (int)$cursoSeleccionado['id_curso'] ?>"
->
+            <input
+                type="hidden"
+                name="id_estudiante"
+                id="editarId"
+            >
 
-<div class="form-group">
+            <input
+                type="hidden"
+                name="id_curso"
+                value="<?= (int)$cursoSeleccionado['id_curso'] ?>"
+            >
 
-<label
-    class="form-label"
-    for="editarDocumento"
->
 
-Documento
+            <div class="form-group">
 
-</label>
+                <label
+                    class="form-label"
+                    for="editarDocumento"
+                >
+                    Documento
+                </label>
 
-<input
-    type="text"
-    class="form-input"
-    id="editarDocumento"
-    name="documento"
-    required
->
+                <input
+                    type="text"
+                    class="form-input"
+                    id="editarDocumento"
+                    name="documento"
+                    required
+                >
 
-</div>
+            </div>
 
-<div class="form-group">
 
-<label
-    class="form-label"
-    for="editarNombres"
->
+            <div class="form-group">
 
-Nombres
+                <label
+                    class="form-label"
+                    for="editarNombres"
+                >
+                    Nombres
+                </label>
 
-</label>
+                <input
+                    type="text"
+                    class="form-input"
+                    id="editarNombres"
+                    name="nombres"
+                    required
+                >
 
-<input
-    type="text"
-    class="form-input"
-    id="editarNombres"
-    name="nombres"
-    required
->
+            </div>
 
-</div>
 
-<div class="form-group">
+            <div class="form-group">
 
-<label
-    class="form-label"
-    for="editarApellidos"
->
+                <label
+                    class="form-label"
+                    for="editarApellidos"
+                >
+                    Apellidos
+                </label>
 
-Apellidos
+                <input
+                    type="text"
+                    class="form-input"
+                    id="editarApellidos"
+                    name="apellidos"
+                    required
+                >
 
-</label>
+            </div>
 
-<input
-    type="text"
-    class="form-input"
-    id="editarApellidos"
-    name="apellidos"
-    required
->
 
-</div>
+            <div class="modal-actions">
 
-<div class="modal-actions">
+                <button
+                    type="button"
+                    class="btn-cancel"
+                    onclick="cerrarModalEditar()"
+                >
+                    Cancelar
+                </button>
 
-<button
-    type="button"
-    class="btn-cancel"
-    onclick="cerrarModalEditar()"
->
+                <button
+                    type="submit"
+                    name="editar_estudiante"
+                    class="btn-save"
+                >
 
-Cancelar
+                    <i class="bi bi-check-lg"></i>
 
-</button>
+                    Guardar cambios
 
-<button
-    type="submit"
-    name="editar_estudiante"
-    class="btn-save"
->
+                </button>
 
-<i class="bi bi-check-lg"></i>
+            </div>
 
-Guardar cambios
+        </form>
 
-</button>
-
-</div>
-
-</form>
-
-</div>
+    </div>
 
 </div>
+
 
 <!-- =====================================================
-     MODAL QR DEL ESTUDIANTE
+     MODAL QR
 ===================================================== -->
 
 <div
@@ -3535,143 +4041,150 @@ Guardar cambios
     id="modalQR"
 >
 
-<div class="qr-modal-card">
+    <div class="qr-modal-card">
 
-<div class="qr-modal-top">
+        <div class="qr-modal-top">
 
-<button
-    type="button"
-    class="qr-modal-close"
-    onclick="cerrarModalQR()"
-    aria-label="Cerrar"
->
+            <button
+                type="button"
+                class="qr-modal-close"
+                onclick="cerrarModalQR()"
+                aria-label="Cerrar"
+            >
 
-<i class="bi bi-x-lg"></i>
+                <i class="bi bi-x-lg"></i>
 
-</button>
+            </button>
 
-<div class="qr-title-icon">
 
-<i class="bi bi-qr-code"></i>
+            <div class="qr-title-icon">
+                <i class="bi bi-qr-code"></i>
+            </div>
+
+
+            <h2>
+                Código QR del estudiante
+            </h2>
+
+
+            <p>
+                Este código identifica al estudiante mediante su documento.
+            </p>
+
+        </div>
+
+
+        <div class="qr-content">
+
+            <div class="qr-image-box">
+
+                <img
+                    id="imagenQR"
+                    src=""
+                    alt="Código QR del estudiante"
+                >
+
+            </div>
+
+
+            <div
+                class="qr-student-name"
+                id="qrNombre"
+            >
+                Estudiante
+            </div>
+
+
+            <div class="qr-data-grid">
+
+                <div class="qr-data">
+
+                    <span class="qr-data-label">
+                        Documento
+                    </span>
+
+                    <span
+                        class="qr-data-value"
+                        id="qrDocumento"
+                    >
+                        -
+                    </span>
+
+                </div>
+
+
+                <div class="qr-data">
+
+                    <span class="qr-data-label">
+                        Curso
+                    </span>
+
+                    <span class="qr-data-value">
+
+                        <?= htmlspecialchars(
+                            'Curso ' .
+                            $cursoSeleccionado['nombre_curso']
+                        ) ?>
+
+                    </span>
+
+                </div>
+
+            </div>
+
+
+            <div
+                id="qrEstado"
+                class="qr-status active"
+            >
+
+                <span class="status-dot"></span>
+
+                <span id="qrEstadoTexto">
+                    ACTIVO
+                </span>
+
+            </div>
+
+
+            <div class="qr-modal-actions">
+
+                <button
+                    type="button"
+                    class="qr-action qr-close-action"
+                    onclick="cerrarModalQR()"
+                >
+
+                    <i class="bi bi-x-circle"></i>
+
+                    Cerrar
+
+                </button>
+
+
+                <button
+                    type="button"
+                    class="qr-action qr-print"
+                    onclick="imprimirQR()"
+                >
+
+                    <i class="bi bi-printer"></i>
+
+                    Imprimir QR
+
+                </button>
+
+            </div>
+
+        </div>
+
+    </div>
 
 </div>
 
-<h2>
-Código QR del estudiante
-</h2>
-
-<p>
-Este código identifica al estudiante mediante su documento.
-</p>
-
-</div>
-
-<div class="qr-content">
-
-<div class="qr-image-box">
-
-<img
-    id="imagenQR"
-    src=""
-    alt="Código QR del estudiante"
->
-
-</div>
-
-<div
-    class="qr-student-name"
-    id="qrNombre"
->
-
-Estudiante
-
-</div>
-
-<div class="qr-data-grid">
-
-<div class="qr-data">
-
-<span class="qr-data-label">
-Documento
-</span>
-
-<span
-    class="qr-data-value"
-    id="qrDocumento"
->
--
-</span>
-
-</div>
-
-<div class="qr-data">
-
-<span class="qr-data-label">
-Curso
-</span>
-
-<span
-    class="qr-data-value"
->
-
-<?= htmlspecialchars(
-    'Curso ' . $cursoSeleccionado['nombre_curso']
-) ?>
-
-</span>
-
-</div>
-
-</div>
-
-<div
-    id="qrEstado"
-    class="qr-status active"
->
-
-<span class="status-dot"></span>
-
-<span id="qrEstadoTexto">
-ACTIVO
-</span>
-
-</div>
-
-<div class="qr-modal-actions">
-
-<button
-    type="button"
-    class="qr-action qr-close-action"
-    onclick="cerrarModalQR()"
->
-
-<i class="bi bi-x-circle"></i>
-
-Cerrar
-
-</button>
-
-<button
-    type="button"
-    class="qr-action qr-print"
-    onclick="imprimirQR()"
->
-
-<i class="bi bi-printer"></i>
-
-Imprimir QR
-
-</button>
-
-</div>
-
-</div>
-
-</div>
-
-</div>
 
 <?php endif; ?>
+
 
 <script>
 
@@ -3717,14 +4230,10 @@ setInterval(
 ========================================================= */
 
 const buscador =
-    document.getElementById(
-        'buscadorCursos'
-    );
+    document.getElementById('buscadorCursos');
 
 const tarjetas =
-    document.querySelectorAll(
-        '.course-card'
-    );
+    document.querySelectorAll('.course-card');
 
 if(buscador){
 
@@ -3743,19 +4252,14 @@ if(buscador){
                     const curso =
                         tarjeta.dataset.curso || '';
 
-                    if(
-                        curso.includes(texto)
-                    ){
+                    if(curso.includes(texto)){
 
-                        tarjeta.classList.remove(
-                            'hidden'
-                        );
+                        tarjeta.classList.remove('hidden');
 
                     }else{
 
-                        tarjeta.classList.add(
-                            'hidden'
-                        );
+                        tarjeta.classList.add('hidden');
+
                     }
 
                 }
@@ -3773,28 +4277,20 @@ if(buscador){
 function abrirModalCurso(){
 
     const modal =
-        document.getElementById(
-            'modalCurso'
-        );
+        document.getElementById('modalCurso');
 
     if(modal){
 
-        modal.classList.add(
-            'show'
-        );
+        modal.classList.add('show');
 
         const input =
-            document.getElementById(
-                'nombreCurso'
-            );
+            document.getElementById('nombreCurso');
 
         if(input){
 
             setTimeout(
                 function(){
-
                     input.focus();
-
                 },
                 100
             );
@@ -3805,15 +4301,10 @@ function abrirModalCurso(){
 function cerrarModalCurso(){
 
     const modal =
-        document.getElementById(
-            'modalCurso'
-        );
+        document.getElementById('modalCurso');
 
     if(modal){
-
-        modal.classList.remove(
-            'show'
-        );
+        modal.classList.remove('show');
     }
 }
 
@@ -3825,28 +4316,20 @@ function cerrarModalCurso(){
 function abrirModalEstudiante(){
 
     const modal =
-        document.getElementById(
-            'modalEstudiante'
-        );
+        document.getElementById('modalEstudiante');
 
     if(modal){
 
-        modal.classList.add(
-            'show'
-        );
+        modal.classList.add('show');
 
         const input =
-            document.getElementById(
-                'documentoNuevo'
-            );
+            document.getElementById('documentoNuevo');
 
         if(input){
 
             setTimeout(
                 function(){
-
                     input.focus();
-
                 },
                 100
             );
@@ -3857,15 +4340,10 @@ function abrirModalEstudiante(){
 function cerrarModalEstudiante(){
 
     const modal =
-        document.getElementById(
-            'modalEstudiante'
-        );
+        document.getElementById('modalEstudiante');
 
     if(modal){
-
-        modal.classList.remove(
-            'show'
-        );
+        modal.classList.remove('show');
     }
 }
 
@@ -3874,9 +4352,7 @@ function cerrarModalEstudiante(){
    EDITAR ESTUDIANTE
 ========================================================= */
 
-function editarEstudiante(
-    estudiante
-){
+function editarEstudiante(estudiante){
 
     const modal =
         document.getElementById(
@@ -3884,7 +4360,6 @@ function editarEstudiante(
         );
 
     if(!modal){
-
         return;
     }
 
@@ -3908,9 +4383,7 @@ function editarEstudiante(
     ).value =
         estudiante.apellidos;
 
-    modal.classList.add(
-        'show'
-    );
+    modal.classList.add('show');
 }
 
 function cerrarModalEditar(){
@@ -3921,10 +4394,7 @@ function cerrarModalEditar(){
         );
 
     if(modal){
-
-        modal.classList.remove(
-            'show'
-        );
+        modal.classList.remove('show');
     }
 }
 
@@ -3938,34 +4408,22 @@ let estudianteQRActual = null;
 function verQR(estudiante){
 
     const modal =
-        document.getElementById(
-            'modalQR'
-        );
+        document.getElementById('modalQR');
 
     const imagen =
-        document.getElementById(
-            'imagenQR'
-        );
+        document.getElementById('imagenQR');
 
     const nombre =
-        document.getElementById(
-            'qrNombre'
-        );
+        document.getElementById('qrNombre');
 
     const documento =
-        document.getElementById(
-            'qrDocumento'
-        );
+        document.getElementById('qrDocumento');
 
     const estado =
-        document.getElementById(
-            'qrEstado'
-        );
+        document.getElementById('qrEstado');
 
     const estadoTexto =
-        document.getElementById(
-            'qrEstadoTexto'
-        );
+        document.getElementById('qrEstadoTexto');
 
     if(
         !modal ||
@@ -3975,7 +4433,6 @@ function verQR(estudiante){
         !estado ||
         !estadoTexto
     ){
-
         return;
     }
 
@@ -4002,27 +4459,20 @@ function verQR(estudiante){
         'inactive'
     );
 
-    if(
-        estudiante.estado === 'ACTIVO'
-    ){
+    if(estudiante.estado === 'ACTIVO'){
 
-        estado.classList.add(
-            'active'
-        );
+        estado.classList.add('active');
 
     }else{
 
-        estado.classList.add(
-            'inactive'
-        );
+        estado.classList.add('inactive');
+
     }
 
     /*
-     * EL CONTENIDO DEL QR ES EL DOCUMENTO.
-     *
-     * No se envía el nombre, curso ni estado.
-     * Solamente el documento.
-     */
+       EL QR CONTIENE ÚNICAMENTE
+       EL DOCUMENTO DEL ESTUDIANTE.
+    */
 
     imagen.src =
         'qr_estudiante.php?documento=' +
@@ -4032,23 +4482,16 @@ function verQR(estudiante){
         '&t=' +
         Date.now();
 
-    modal.classList.add(
-        'show'
-    );
+    modal.classList.add('show');
 }
 
 function cerrarModalQR(){
 
     const modal =
-        document.getElementById(
-            'modalQR'
-        );
+        document.getElementById('modalQR');
 
     if(modal){
-
-        modal.classList.remove(
-            'show'
-        );
+        modal.classList.remove('show');
     }
 }
 
@@ -4060,7 +4503,6 @@ function cerrarModalQR(){
 function imprimirQR(){
 
     if(!estudianteQRActual){
-
         return;
     }
 
@@ -4075,12 +4517,9 @@ function imprimirQR(){
         ).trim();
 
     const imagen =
-        document.getElementById(
-            'imagenQR'
-        );
+        document.getElementById('imagenQR');
 
     if(!imagen){
-
         return;
     }
 
@@ -4102,198 +4541,185 @@ function imprimirQR(){
 
     const nombreSeguro =
         nombreCompleto
-        .replace(
-            /</g,
-            '&lt;'
-        )
-        .replace(
-            />/g,
-            '&gt;'
-        );
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
 
     const documentoSeguro =
-        String(
-            estudiante.documento
-        )
-        .replace(
-            /</g,
-            '&lt;'
-        )
-        .replace(
-            />/g,
-            '&gt;'
-        );
+        String(estudiante.documento)
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+
 
     ventana.document.write(`
-        <!DOCTYPE html>
+<!DOCTYPE html>
 
-        <html lang="es">
+<html lang="es">
 
-        <head>
+<head>
 
-        <meta charset="UTF-8">
+<meta charset="UTF-8">
 
-        <title>QR - ${nombreSeguro}</title>
+<title>QR - ${nombreSeguro}</title>
 
-        <style>
+<style>
 
-        *{
-            box-sizing:border-box;
-        }
+*{
+    box-sizing:border-box;
+}
 
-        body{
-            margin:0;
-            min-height:100vh;
+body{
+    margin:0;
+    min-height:100vh;
 
-            display:flex;
-            align-items:center;
-            justify-content:center;
+    display:flex;
+    align-items:center;
+    justify-content:center;
 
-            font-family:Arial,sans-serif;
+    font-family:Arial,sans-serif;
 
-            background:#fff;
-        }
+    background:#fff;
+}
 
-        .tarjeta{
-            width:500px;
+.tarjeta{
+    width:500px;
 
-            padding:35px;
+    padding:35px;
 
-            text-align:center;
+    text-align:center;
 
-            border:1px solid #e2eeee;
+    border:1px solid #e2eeee;
 
-            border-radius:25px;
-        }
+    border-radius:25px;
+}
 
-        h1{
-            margin:0 0 8px;
+h1{
+    margin:0 0 8px;
 
-            color:#245d70;
+    color:#245d70;
 
-            font-size:25px;
-        }
+    font-size:25px;
+}
 
-        .subtitulo{
-            margin-bottom:25px;
+.subtitulo{
+    margin-bottom:25px;
 
-            color:#7898a1;
+    color:#7898a1;
 
-            font-size:13px;
-        }
+    font-size:13px;
+}
 
-        .qr{
-            width:320px;
-            height:320px;
+.qr{
+    width:320px;
+    height:320px;
 
-            object-fit:contain;
+    object-fit:contain;
 
-            margin:0 auto 22px;
+    margin:0 auto 22px;
 
-            display:block;
-        }
+    display:block;
+}
 
-        .nombre{
-            color:#315f70;
+.nombre{
+    color:#315f70;
 
-            font-size:21px;
+    font-size:21px;
 
-            font-weight:bold;
-        }
+    font-weight:bold;
+}
 
-        .documento{
-            margin-top:8px;
+.documento{
+    margin-top:8px;
 
-            color:#668995;
+    color:#668995;
 
-            font-size:15px;
-        }
+    font-size:15px;
+}
 
-        .linea{
-            width:70%;
+.linea{
+    width:70%;
 
-            height:1px;
+    height:1px;
 
-            margin:22px auto;
+    margin:22px auto;
 
-            background:#dcebed;
-        }
+    background:#dcebed;
+}
 
-        .nota{
-            color:#8aa3aa;
+.nota{
+    color:#8aa3aa;
 
-            font-size:11px;
-        }
+    font-size:11px;
+}
 
-        @media print{
+@media print{
 
-            body{
-                min-height:auto;
-            }
+    body{
+        min-height:auto;
+    }
 
-            .tarjeta{
-                border:none;
-            }
+    .tarjeta{
+        border:none;
+    }
 
-        }
+}
 
-        </style>
+</style>
 
-        </head>
+</head>
 
-        <body>
+<body>
 
-        <div class="tarjeta">
+<div class="tarjeta">
 
-            <h1>ASISTENCIA QR</h1>
+    <h1>ASISTENCIA QR</h1>
 
-            <div class="subtitulo">
-                Código de identificación del estudiante
-            </div>
+    <div class="subtitulo">
+        Código de identificación del estudiante
+    </div>
 
-            <img
-                class="qr"
-                src="${imagen.src}"
-                alt="Código QR"
-            >
+    <img
+        class="qr"
+        src="${imagen.src}"
+        alt="Código QR"
+    >
 
-            <div class="nombre">
-                ${nombreSeguro}
-            </div>
+    <div class="nombre">
+        ${nombreSeguro}
+    </div>
 
-            <div class="documento">
-                Documento: ${documentoSeguro}
-            </div>
+    <div class="documento">
+        Documento: ${documentoSeguro}
+    </div>
 
-            <div class="linea"></div>
+    <div class="linea"></div>
 
-            <div class="nota">
-                El código QR contiene únicamente el documento del estudiante.
-            </div>
+    <div class="nota">
+        El código QR contiene únicamente el documento del estudiante.
+    </div>
 
-        </div>
+</div>
 
-        <script>
+<script>
 
-        window.onload = function(){
+window.onload = function(){
 
-            setTimeout(
-                function(){
+    setTimeout(
+        function(){
 
-                    window.print();
+            window.print();
 
-                },
-                500
-            );
+        },
+        500
+    );
 
-        };
+};
 
-        <\/script>
+<\/script>
 
-        </body>
+</body>
 
-        </html>
-    `);
+</html>
+`);
 
     ventana.document.close();
 }
@@ -4308,14 +4734,10 @@ document.addEventListener(
     function(event){
 
         const modalCurso =
-            document.getElementById(
-                'modalCurso'
-            );
+            document.getElementById('modalCurso');
 
         const modalEstudiante =
-            document.getElementById(
-                'modalEstudiante'
-            );
+            document.getElementById('modalEstudiante');
 
         const modalEditar =
             document.getElementById(
@@ -4323,39 +4745,37 @@ document.addEventListener(
             );
 
         const modalQR =
-            document.getElementById(
-                'modalQR'
-            );
+            document.getElementById('modalQR');
+
 
         if(
             modalCurso &&
             event.target === modalCurso
         ){
-
             cerrarModalCurso();
         }
+
 
         if(
             modalEstudiante &&
             event.target === modalEstudiante
         ){
-
             cerrarModalEstudiante();
         }
+
 
         if(
             modalEditar &&
             event.target === modalEditar
         ){
-
             cerrarModalEditar();
         }
+
 
         if(
             modalQR &&
             event.target === modalQR
         ){
-
             cerrarModalQR();
         }
 
@@ -4371,9 +4791,7 @@ document.addEventListener(
     'keydown',
     function(event){
 
-        if(
-            event.key === 'Escape'
-        ){
+        if(event.key === 'Escape'){
 
             cerrarModalCurso();
 
@@ -4382,10 +4800,29 @@ document.addEventListener(
             cerrarModalEditar();
 
             cerrarModalQR();
+
         }
 
     }
 );
+/* =========================================================
+   CONFIRMAR CAMBIO DE ESTADO DEL CURSO
+========================================================= */
+
+function confirmarEstadoCurso(estadoActual){
+
+    if(estadoActual === 'ACTIVO'){
+
+        return confirm(
+            '¿Seguro que deseas desactivar este curso?'
+        );
+
+    }
+
+    return confirm(
+        '¿Deseas activar este curso?'
+    );
+}
 
 </script>
 
