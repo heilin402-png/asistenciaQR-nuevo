@@ -716,8 +716,12 @@ if (
    GRÁFICA POR DÍA
 ========================================================= */
 
-$grafica = [];
+/* =========================================================
+   GRÁFICA POR DÍA
+   SOLO LUNES A VIERNES
+========================================================= */
 
+$grafica = [];
 
 $dias = [
 
@@ -725,61 +729,24 @@ $dias = [
     'Tue' => 'Mar',
     'Wed' => 'Mié',
     'Thu' => 'Jue',
-    'Fri' => 'Vie',
-    'Sat' => 'Sáb',
-    'Sun' => 'Dom'
+    'Fri' => 'Vie'
 
 ];
 
 
-$fechaGraficaInicio =
-    $fechaInicio;
-
-
-$fechaGraficaFin =
-    $fechaFin;
-
-
 /*
-   Limitar la gráfica a los últimos
-   7 días para mantenerla limpia.
+   Tomar únicamente los días hábiles
+   dentro del período seleccionado.
 */
-
-$inicioTimestamp =
-    strtotime(
-        $fechaGraficaFin
-    );
-
-
-$fechaGraficaInicio =
-    date(
-        'Y-m-d',
-        strtotime(
-            '-6 days',
-            $inicioTimestamp
-        )
-    );
-
-
-if (
-    $fechaGraficaInicio < $fechaInicio
-) {
-
-    $fechaGraficaInicio =
-        $fechaInicio;
-
-}
-
 
 $cursor =
     strtotime(
-        $fechaGraficaInicio
+        $fechaInicio
     );
-
 
 $finGrafica =
     strtotime(
-        $fechaGraficaFin
+        $fechaFin
     );
 
 
@@ -793,7 +760,6 @@ while (
             $cursor
         );
 
-
     $dia =
         date(
             'D',
@@ -801,24 +767,35 @@ while (
         );
 
 
-    $grafica[$fecha] = [
+    /*
+       Solo agregar lunes a viernes.
+    */
 
-        'fecha' =>
-            $fecha,
-
-        'dia' =>
+    if (
+        isset(
             $dias[$dia]
-            ?? $dia,
+        )
+    ) {
 
-        'sesiones' => 0,
+        $grafica[$fecha] = [
 
-        'presentes' => 0,
+            'fecha' =>
+                $fecha,
 
-        'esperados' => 0,
+            'dia' =>
+                $dias[$dia],
 
-        'porcentaje' => 0
+            'sesiones' => 0,
 
-    ];
+            'presentes' => 0,
+
+            'esperados' => 0,
+
+            'porcentaje' => 0
+
+        ];
+
+    }
 
 
     $cursor =
@@ -828,7 +805,6 @@ while (
         );
 
 }
-
 
 /* =========================================================
    LLENAR GRÁFICA
@@ -4372,17 +4348,72 @@ body{
 
 
                             <td>
+<td>
 
-                                <?= htmlspecialchars(
-                                    substr(
-                                        $sesion[
-                                            'hora_inicio'
-                                        ],
-                                        0,
-                                        5
-                                    )
-                                ) ?>
+    <?php
 
+    $horaInicio =
+        $sesion['hora_inicio']
+        ?? '';
+
+    $horaFormateada = '—';
+
+
+    if ($horaInicio !== '') {
+
+        $timestampHora =
+            strtotime($horaInicio);
+
+
+        if ($timestampHora !== false) {
+
+            $horaFormateada =
+                date(
+                    'H:i',
+                    $timestampHora
+                );
+
+        }
+        elseif (
+            strpos(
+                $horaInicio,
+                ' '
+            ) !== false
+        ) {
+
+            /*
+               Si el valor viene como:
+               2026-09-19 20:26:00
+            */
+
+            $parteHora =
+                substr(
+                    $horaInicio,
+                    strpos(
+                        $horaInicio,
+                        ' '
+                    ) + 1
+                );
+
+
+            $horaFormateada =
+                substr(
+                    $parteHora,
+                    0,
+                    5
+                );
+
+        }
+
+    }
+
+    ?>
+
+    <?= htmlspecialchars(
+        $horaFormateada
+    ) ?>
+
+</td>
                             </td>
 
 

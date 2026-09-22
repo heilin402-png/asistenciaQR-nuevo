@@ -1,80 +1,351 @@
 <?php
 
-/* ==========================================================
-   SESIÓN
-========================================================== */
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
 
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
+session_start();
+
+date_default_timezone_set('America/Bogota');
 
 
-/* ==========================================================
-   SI EL USUARIO YA ESTÁ AUTENTICADO
-========================================================== */
+/* =========================================================
+   CONEXIÓN
+   ========================================================= */
 
-if (isset($_SESSION['id_usuario'])) {
+require_once(__DIR__ . "/../config/conexion.php");
 
-    /*
-    ==========================================================
-       ADMINISTRADOR
-    ==========================================================
-    */
 
-    if (
-        isset($_SESSION['id_rol']) &&
-        (int) $_SESSION['id_rol'] === 1
-    ) {
+/* =========================================================
+   CONFIGURACIÓN DE ROLES
+   =========================================================
+
+   1 = ADMINISTRADOR
+   2 = DOCENTE
+   3 = RESTAURANTE
+   ========================================================= */
+
+$ROLES = [
+
+    "admin" => [
+        "id" => 1,
+        "nombre" => "Administrador"
+    ],
+
+    "docente" => [
+        "id" => 2,
+        "nombre" => "Docente"
+    ],
+
+    "restaurante" => [
+        "id" => 3,
+        "nombre" => "Restaurante"
+    ]
+
+];
+
+
+/* =========================================================
+   SI YA EXISTE UNA SESIÓN
+   ========================================================= */
+
+if (isset($_SESSION["id_usuario"]) && isset($_SESSION["id_rol"])) {
+
+    $rolActual = (int) $_SESSION["id_rol"];
+
+
+    /* ADMINISTRADOR */
+
+    if ($rolActual === 1) {
 
         header("Location: ../admin/dashboard.php");
-        exit();
-
+        exit;
     }
 
 
-    /*
-    ==========================================================
-       DOCENTE
-    ==========================================================
-    */
+    /* DOCENTE */
 
-    if (
-        isset($_SESSION['id_rol']) &&
-        (int) $_SESSION['id_rol'] === 2
-    ) {
+    if ($rolActual === 2) {
 
-        header("Location: ../docente/dashboard.php");
-        exit();
-
+        header("Location: ../docente/asistencia.php");
+        exit;
     }
 
 
-    /*
-    ==========================================================
-       RESTAURANTE
-    ==========================================================
-    */
+    /* RESTAURANTE */
 
-    if (
-        isset($_SESSION['id_rol']) &&
-        (int) $_SESSION['id_rol'] === 3
-    ) {
+    if ($rolActual === 3) {
 
-        header("Location: ../restaurante/dashboard.php");
-        exit();
-
+        header("Location: ../restaurante/index.php");
+        exit;
     }
-
 }
 
 
-/* ==========================================================
-   MENSAJE DE ERROR
-========================================================== */
+/* =========================================================
+   VARIABLES
+   ========================================================= */
 
-$error = $_GET['error'] ?? '';
+$mensaje = "";
+$tipoMensaje = "";
+
+$rolSeleccionado = $_POST["rol"] ?? "";
+
+$usuarioIngresado = $_POST["usuario"] ?? "";
+
+
+/* =========================================================
+   PROCESAR LOGIN
+   ========================================================= */
+
+if ($_SERVER["REQUEST_METHOD"] === "POST") {
+
+    $passwordIngresada = $_POST["password"] ?? "";
+
+
+    /* =====================================================
+       VALIDAR ROL
+       ===================================================== */
+
+    if (!isset($ROLES[$rolSeleccionado])) {
+
+        $mensaje = "Selecciona el tipo de usuario.";
+
+        $tipoMensaje = "error";
+
+    } else {
+
+        $rol = $ROLES[$rolSeleccionado];
+
+
+        /* =================================================
+           VALIDAR CAMPOS
+           ================================================= */
+
+        if (
+            trim($usuarioIngresado) === "" ||
+            $passwordIngresada === ""
+        ) {
+
+            $mensaje = "Por favor completa todos los campos.";
+
+            $tipoMensaje = "error";
+
+        } else {
+
+
+            /* =============================================
+               BUSCAR USUARIO
+               ============================================= */
+
+            $sql = "
+                SELECT
+                    id_usuario,
+                    nombre,
+                    apellido,
+                    usuario,
+                    password,
+                    id_rol,
+                    estado
+                FROM usuarios
+                WHERE usuario = ?
+                LIMIT 1
+            ";
+
+
+            $stmt = $conexion->prepare($sql);
+
+
+            if (!$stmt) {
+
+                $mensaje =
+                    "No fue posible preparar la consulta.";
+
+                $tipoMensaje = "error";
+
+            } else {
+
+
+                $stmt->bind_param(
+                    "s",
+                    $usuarioIngresado
+                );
+
+
+                $stmt->execute();
+
+
+                $resultado = $stmt->get_result();
+
+
+                /* =========================================
+                   COMPROBAR SI EXISTE
+                   ========================================= */
+
+                if ($resultado->num_rows === 0) {
+
+                    $mensaje =
+                        "El correo o usuario no está registrado.";
+
+                    $tipoMensaje = "error";
+
+                } else {
+
+                    $usuario = $resultado->fetch_assoc();
+
+
+                    /* =====================================
+                       COMPROBAR ESTADO
+                       ===================================== */
+
+                    if (
+                        isset($usuario["estado"]) &&
+                        $usuario["estado"] !== "ACTIVO"
+                    ) {
+
+                        $mensaje =
+                            "Este usuario se encuentra inactivo.";
+
+                        $tipoMensaje = "error";
+
+                    } else {
+
+
+                        /* =================================
+                           COMPROBAR ROL
+                           ================================= */
+
+                        if (
+                            (int)$usuario["id_rol"] !==
+                            (int)$rol["id"]
+                        ) {
+
+                            $mensaje =
+                                "El usuario no pertenece al tipo de usuario seleccionado.";
+
+                            $tipoMensaje = "error";
+
+                        } else {
+
+
+                            /* =============================
+                               COMPROBAR CONTRASEÑA
+                               =============================
+
+                               La contraseña está almacenada
+                               en la columna password.
+
+                               password_verify() comprueba
+                               la contraseña escrita contra
+                               el hash guardado.
+                               ============================= */
+
+                            if (
+                                !password_verify(
+                                    $passwordIngresada,
+                                    $usuario["password"]
+                                )
+                            ) {
+
+                                $mensaje =
+                                    "La contraseña es incorrecta.";
+
+                                $tipoMensaje = "error";
+
+                            } else {
+
+
+                                /* =========================
+                                   LOGIN CORRECTO
+                                   ========================= */
+
+                                session_regenerate_id(true);
+
+
+                                $_SESSION["id_usuario"] =
+                                    (int)$usuario["id_usuario"];
+
+
+                                $_SESSION["id_rol"] =
+                                    (int)$usuario["id_rol"];
+
+
+                                $_SESSION["usuario"] =
+                                    $usuario["usuario"];
+
+
+                                $_SESSION["nombre"] =
+                                    $usuario["nombre"];
+
+
+                                $_SESSION["apellido"] =
+                                    $usuario["apellido"];
+
+
+                                /* =========================
+                                   REDIRECCIÓN
+                                   ========================= */
+
+
+                                /* ADMINISTRADOR */
+
+                                if (
+                                    (int)$usuario["id_rol"] === 1
+                                ) {
+
+                                    header(
+                                        "Location: ../admin/dashboard.php"
+                                    );
+
+                                    exit;
+                                }
+
+
+                                /* DOCENTE */
+
+                                if (
+                                    (int)$usuario["id_rol"] === 2
+                                ) {
+
+                                    header(
+                                        "Location: ../docente/asistencia.php"
+                                    );
+
+                                    exit;
+                                }
+
+
+                                /* RESTAURANTE */
+
+                                if (
+                                    (int)$usuario["id_rol"] === 3
+                                ) {
+
+                                    header(
+                                        "Location: ../restaurante/index.php"
+                                    );
+
+                                    exit;
+                                }
+
+
+                                $mensaje =
+                                    "El usuario no tiene un módulo asignado.";
+
+                                $tipoMensaje = "error";
+                            }
+                        }
+                    }
+                }
+
+
+                $stmt->close();
+            }
+        }
+    }
+}
 
 ?>
+
 
 <!DOCTYPE html>
 
@@ -90,78 +361,88 @@ $error = $_GET['error'] ?? '';
     >
 
     <title>
-        Iniciar sesión | Sistema de Asistencia QR
+        Sistema de Asistencia QR
     </title>
 
 
     <!-- =====================================================
-         BOOTSTRAP
-    ====================================================== -->
-
-    <link
-        href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/css/bootstrap.min.css"
-        rel="stylesheet"
-    >
-
-
-    <!-- =====================================================
-         BOOTSTRAP ICONS
-    ====================================================== -->
-
-    <link
-        href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css"
-        rel="stylesheet"
-    >
-
-
-    <!-- =====================================================
          FUENTE
-    ====================================================== -->
+         ===================================================== -->
 
     <link
-        href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800;900&display=swap"
+        rel="preconnect"
+        href="https://fonts.googleapis.com"
+    >
+
+    <link
+        rel="preconnect"
+        href="https://fonts.gstatic.com"
+        crossorigin
+    >
+
+    <link
+        href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap"
         rel="stylesheet"
+    >
+
+
+    <!-- =====================================================
+         ICONOS
+         ===================================================== -->
+
+    <link
+        rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
     >
 
 
     <style>
 
         * {
+            margin: 0;
+            padding: 0;
             box-sizing: border-box;
+        }
+
+
+        html,
+        body {
+            width: 100%;
+            min-height: 100%;
         }
 
 
         body {
 
-            margin: 0;
-
-            min-height: 100vh;
-
-            font-family: "Nunito", sans-serif;
+            font-family: 'Poppins', sans-serif;
 
             background:
                 radial-gradient(
-                    circle at 10% 15%,
-                    rgba(52, 152, 219, .10),
+                    circle at 8% 8%,
+                    rgba(26, 148, 235, 0.10),
                     transparent 25%
                 ),
                 radial-gradient(
-                    circle at 90% 85%,
-                    rgba(26, 188, 156, .10),
-                    transparent 25%
+                    circle at 92% 92%,
+                    rgba(20, 190, 174, 0.13),
+                    transparent 28%
                 ),
                 linear-gradient(
                     135deg,
-                    #f7fbff 0%,
+                    #f4faff 0%,
                     #eef7ff 50%,
-                    #f5fffd 100%
+                    #f7ffff 100%
                 );
 
-            color: #173568;
+            color: #12356d;
 
             overflow-x: hidden;
         }
 
+
+        /* =====================================================
+           DECORACIONES
+           ===================================================== */
 
         body::before {
 
@@ -169,15 +450,15 @@ $error = $_GET['error'] ?? '';
 
             position: fixed;
 
-            width: 380px;
-            height: 380px;
+            width: 320px;
+            height: 320px;
+
+            top: -160px;
+            left: -80px;
+
+            border: 1px solid rgba(39, 130, 220, 0.12);
 
             border-radius: 50%;
-
-            border: 1px solid rgba(52, 152, 219, .13);
-
-            top: -170px;
-            left: -160px;
 
             pointer-events: none;
         }
@@ -189,119 +470,123 @@ $error = $_GET['error'] ?? '';
 
             position: fixed;
 
-            width: 420px;
-            height: 420px;
+            width: 300px;
+            height: 300px;
+
+            right: -120px;
+            bottom: -140px;
+
+            border: 1px solid rgba(16, 190, 176, 0.15);
 
             border-radius: 50%;
-
-            border: 1px solid rgba(26, 188, 156, .12);
-
-            bottom: -220px;
-            right: -180px;
 
             pointer-events: none;
         }
 
 
-        /* ==================================================
+        /* =====================================================
            CONTENEDOR
-        ================================================== */
+           ===================================================== */
 
-        .login-container {
+        .page {
 
-            width: min(1380px, 94%);
+            width: 100%;
 
             min-height: 100vh;
 
-            margin: auto;
-
             display: grid;
 
-            grid-template-columns: 1fr 0.88fr;
+            grid-template-columns: 1fr 1fr;
 
             align-items: center;
 
-            gap: 65px;
+            gap: 55px;
 
-            padding: 45px 20px;
+            padding: 42px 7%;
         }
 
 
-        /* ==================================================
+        /* =====================================================
            LADO IZQUIERDO
-        ================================================== */
+           ===================================================== */
 
-        .login-presentation {
+        .left {
 
-            min-height: 700px;
-
-            display: flex;
-
-            flex-direction: column;
-
-            justify-content: space-between;
-
-            padding: 35px 20px;
+            padding-left: 20px;
         }
 
 
-        .login-brand {
+        /* =====================================================
+           MARCA
+           ===================================================== */
+
+        .brand {
 
             display: flex;
 
             align-items: center;
 
-            gap: 18px;
+            gap: 15px;
+
+            margin-bottom: 30px;
         }
 
 
-        .login-logo {
+        .brand-logo {
 
-            width: 76px;
-            height: 76px;
+            width: 82px;
+            height: 82px;
 
-            object-fit: contain;
+            display: flex;
+
+            align-items: center;
+
+            justify-content: center;
+        }
+
+
+        .brand-logo i {
+
+            font-size: 49px;
+
+            color: #0d9e9c;
 
             filter:
                 drop-shadow(
-                    0 8px 15px rgba(30, 136, 229, .15)
+                    0 5px 10px rgba(0, 150, 180, 0.14)
                 );
         }
 
 
-        .login-brand-name {
+        .brand-text h2 {
 
-            font-size: 27px;
+            font-size: 30px;
 
-            font-weight: 900;
+            line-height: 1.15;
 
-            color: #112f67;
+            font-weight: 800;
 
-            line-height: 1.1;
+            color: #12356d;
         }
 
 
-        .login-brand-subtitle {
+        .brand-text p {
 
             margin-top: 5px;
 
             font-size: 16px;
 
-            font-weight: 800;
+            font-weight: 600;
 
-            color: #13bca9;
+            color: #10bcae;
         }
 
 
-        .login-presentation-content {
+        /* =====================================================
+           BADGE
+           ===================================================== */
 
-            max-width: 610px;
-
-            margin-top: 20px;
-        }
-
-
-        .login-badge {
+        .badge {
 
             display: inline-flex;
 
@@ -309,109 +594,102 @@ $error = $_GET['error'] ?? '';
 
             gap: 10px;
 
-            padding: 10px 18px;
+            padding: 11px 20px;
+
+            background: rgba(255,255,255,.88);
 
             border-radius: 30px;
 
-            background: rgba(255,255,255,.82);
-
-            border: 1px solid rgba(46, 134, 222, .12);
-
             box-shadow:
-                0 8px 25px rgba(47, 128, 237, .10);
+                0 10px 30px rgba(36, 101, 160, .08);
 
-            font-size: 13px;
+            color: #12356d;
 
-            font-weight: 900;
+            font-size: 14px;
 
-            letter-spacing: .3px;
+            font-weight: 700;
 
-            color: #24477f;
-
-            margin-bottom: 35px;
+            margin-bottom: 40px;
         }
 
 
-        .login-badge span {
+        .badge-dot {
 
             width: 11px;
             height: 11px;
 
             border-radius: 50%;
 
-            background: #18c6b3;
+            background: #12bfae;
 
             box-shadow:
-                0 0 0 5px rgba(24,198,179,.10);
+                0 0 0 7px rgba(18,191,174,.10);
         }
 
 
-        .login-presentation h1 {
+        /* =====================================================
+           TITULO
+           ===================================================== */
 
-            margin: 0;
+        .hero-title {
 
-            font-size: clamp(45px, 5vw, 70px);
+            max-width: 620px;
+
+            font-size: clamp(48px, 5vw, 76px);
 
             line-height: 1.02;
 
-            font-weight: 900;
+            letter-spacing: -2.5px;
 
-            letter-spacing: -2px;
+            font-weight: 800;
 
-            color: #122f66;
+            color: #153a76;
+
+            margin-bottom: 28px;
         }
 
 
-        .login-presentation h1 span {
+        .hero-title .blue {
 
-            display: block;
-
-            background:
-                linear-gradient(
-                    90deg,
-                    #2378ed,
-                    #13bdb3
-                );
-
-            -webkit-background-clip: text;
-
-            background-clip: text;
-
-            color: transparent;
+            color: #2187e9;
         }
 
 
-        .login-presentation p {
+        .hero-title .green {
 
-            margin-top: 30px;
+            color: #15b9b2;
+        }
 
-            max-width: 570px;
+
+        .description {
+
+            max-width: 640px;
 
             font-size: 18px;
 
-            line-height: 1.75;
+            line-height: 1.9;
 
-            font-weight: 600;
+            color: #426593;
 
-            color: #52688e;
+            margin-bottom: 45px;
         }
 
 
-        /* ==================================================
-           BENEFICIOS
-        ================================================== */
+        /* =====================================================
+           CARACTERÍSTICAS
+           ===================================================== */
 
-        .login-benefits {
+        .features {
 
             display: flex;
 
-            gap: 28px;
+            gap: 55px;
 
-            margin-top: 38px;
+            flex-wrap: wrap;
         }
 
 
-        .login-benefit {
+        .feature {
 
             width: 125px;
 
@@ -419,12 +697,12 @@ $error = $_GET['error'] ?? '';
         }
 
 
-        .login-benefit-icon {
+        .feature-icon {
 
-            width: 78px;
-            height: 78px;
+            width: 88px;
+            height: 88px;
 
-            margin: auto;
+            margin: 0 auto 14px;
 
             display: flex;
 
@@ -432,151 +710,85 @@ $error = $_GET['error'] ?? '';
 
             justify-content: center;
 
-            border-radius: 20px;
+            background: rgba(255,255,255,.96);
 
-            background: rgba(255,255,255,.90);
+            border-radius: 23px;
 
             box-shadow:
-                0 10px 28px rgba(42, 111, 190, .12);
-
-            color: #1685e8;
-
-            font-size: 31px;
+                0 12px 30px rgba(40, 105, 170, .12);
         }
 
 
-        .login-benefit:nth-child(2)
-        .login-benefit-icon {
+        .feature-icon i {
 
-            color: #12bda8;
+            font-size: 34px;
+
+            color: #1688e9;
         }
 
 
-        .login-benefit:nth-child(3)
-        .login-benefit-icon {
+        .feature:nth-child(2)
+        .feature-icon i {
 
-            color: #2677df;
+            color: #0db6aa;
         }
 
 
-        .login-benefit span {
+        .feature:nth-child(3)
+        .feature-icon i {
 
-            display: block;
+            color: #2187e9;
+        }
 
-            margin-top: 14px;
+
+        .feature p {
+
+            color: #153a76;
 
             font-size: 14px;
 
-            line-height: 1.35;
+            font-weight: 700;
 
-            font-weight: 800;
-
-            color: #183668;
+            line-height: 1.5;
         }
 
 
-        /* ==================================================
-           FOOTER
-        ================================================== */
-
-        .login-footer-left {
-
-            display: flex;
-
-            align-items: center;
-
-            gap: 12px;
-
-            color: #45618f;
-
-            font-size: 14px;
-
-            font-weight: 800;
-        }
-
-
-        .login-footer-left i {
-
-            color: #16bca8;
-        }
-
-
-        .login-footer-left strong {
-
-            color: #2477e8;
-        }
-
-
-        /* ==================================================
-           FORMULARIO
-        ================================================== */
-
-        .login-form-section {
-
-            display: flex;
-
-            justify-content: center;
-
-            align-items: center;
-        }
-
-
-        /* ==================================================
-           TARJETA
-        ================================================== */
+        /* =====================================================
+           TARJETA LOGIN
+           ===================================================== */
 
         .login-card {
 
             width: 100%;
 
-            max-width: 535px;
+            max-width: 605px;
 
-            padding: 45px 58px 35px;
+            min-height: 760px;
 
-            border-radius: 34px;
+            margin-left: auto;
+
+            padding: 52px 65px;
 
             background:
                 linear-gradient(
                     145deg,
-                    #ffffff 0%,
-                    #f7fbff 55%,
-                    #f1fffc 100%
+                    rgba(255,255,255,.96),
+                    rgba(248,253,255,.91)
                 );
 
             border: 1px solid rgba(255,255,255,.95);
 
+            border-radius: 38px;
+
             box-shadow:
-                0 25px 65px rgba(34, 91, 153, .14),
-                0 5px 20px rgba(34, 91, 153, .06);
+                0 30px 70px rgba(29, 84, 133, .12),
+                inset 0 1px 0 rgba(255,255,255,.9);
+
+            backdrop-filter: blur(15px);
 
             position: relative;
 
             overflow: hidden;
-        }
-
-
-        .login-card::before {
-
-            content: "";
-
-            position: absolute;
-
-            width: 260px;
-            height: 260px;
-
-            border-radius: 50%;
-
-            background:
-                radial-gradient(
-                    circle,
-                    rgba(36,129,239,.08),
-                    transparent 70%
-                );
-
-            top: -160px;
-            right: -90px;
-
-            pointer-events: none;
         }
 
 
@@ -586,37 +798,34 @@ $error = $_GET['error'] ?? '';
 
             position: absolute;
 
-            width: 220px;
-            height: 220px;
+            width: 300px;
+            height: 300px;
+
+            right: -170px;
+            bottom: -170px;
 
             border-radius: 50%;
 
-            background:
-                radial-gradient(
-                    circle,
-                    rgba(17,197,174,.07),
-                    transparent 70%
-                );
-
-            bottom: -150px;
-            left: -110px;
+            border: 1px solid rgba(17, 194, 178, .14);
 
             pointer-events: none;
         }
 
 
-        /* ==================================================
-           ICONO
-        ================================================== */
+        /* =====================================================
+           ICONO LOGIN
+           ===================================================== */
 
-        .login-card-icon {
+        .login-icon {
 
-            width: 132px;
-            height: 132px;
+            width: 150px;
+            height: 150px;
 
-            margin: 0 auto 28px;
+            margin: 0 auto 30px;
 
             border-radius: 50%;
+
+            border: 3px solid #b5d5ff;
 
             display: flex;
 
@@ -625,348 +834,377 @@ $error = $_GET['error'] ?? '';
             justify-content: center;
 
             background:
-                linear-gradient(
-                    145deg,
-                    #ffffff,
-                    #eef8ff
+                radial-gradient(
+                    circle,
+                    #ffffff 0%,
+                    #f7fbff 70%
                 );
 
-            border: 3px solid #bcd7ff;
-
-            box-shadow:
-                0 8px 25px rgba(31, 124, 228, .12),
-                inset 0 0 20px rgba(255,255,255,.9);
-
             position: relative;
-
-            z-index: 2;
         }
 
 
-        .login-card-icon svg {
+        .login-icon i {
 
-            width: 84px;
-            height: 84px;
+            font-size: 67px;
 
-            overflow: visible;
+            color: #1688e9;
         }
 
 
-        .person-line {
+        /* =====================================================
+           TITULOS
+           ===================================================== */
 
-            fill: none;
-
-            stroke: #138bd7;
-
-            stroke-width: 3.4;
-
-            stroke-linecap: round;
-
-            stroke-linejoin: round;
-        }
-
-
-        .shield-line {
-
-            fill: #ffffff;
-
-            stroke: #14b9b1;
-
-            stroke-width: 3;
-
-            stroke-linejoin: round;
-        }
-
-
-        .lock-line {
-
-            fill: none;
-
-            stroke: #168ed7;
-
-            stroke-width: 3;
-
-            stroke-linecap: round;
-
-            stroke-linejoin: round;
-        }
-
-
-        /* ==================================================
-           ENCABEZADO
-        ================================================== */
-
-        .login-card-header {
+        .login-title-small {
 
             text-align: center;
 
-            position: relative;
+            color: #1584e4;
 
-            z-index: 2;
+            font-size: 19px;
+
+            font-weight: 800;
+
+            margin-bottom: 25px;
         }
 
 
-        .login-card-header > span {
+        .login-title-small::before,
+        .login-title-small::after {
 
-            display: inline-flex;
+            content: "•";
+
+            color: #12bfae;
+
+            margin: 0 15px;
+
+            font-size: 22px;
+        }
+
+
+        .login-title {
+
+            text-align: center;
+
+            color: #12356d;
+
+            font-size: 43px;
+
+            font-weight: 800;
+
+            line-height: 1.1;
+
+            margin-bottom: 10px;
+        }
+
+
+        .login-subtitle {
+
+            text-align: center;
+
+            color: #607da4;
+
+            font-size: 17px;
+
+            margin-bottom: 28px;
+        }
+
+
+        /* =====================================================
+           MENSAJE
+           ===================================================== */
+
+        .message {
+
+            margin-bottom: 22px;
+
+            padding: 14px 18px;
+
+            border-radius: 12px;
+
+            text-align: center;
+
+            font-size: 14px;
+
+            font-weight: 600;
+
+            position: relative;
+
+            z-index: 5;
+        }
+
+
+        .message.error {
+
+            color: #a93232;
+
+            background: #fff0f0;
+
+            border: 1px solid #ffd2d2;
+        }
+
+
+        /* =====================================================
+           ROLES
+           ===================================================== */
+
+        .role-label {
+
+            display: block;
+
+            color: #153a76;
+
+            font-size: 15px;
+
+            font-weight: 700;
+
+            margin-bottom: 12px;
+        }
+
+
+        .roles {
+
+            display: grid;
+
+            grid-template-columns:
+                repeat(3, 1fr);
+
+            gap: 10px;
+
+            margin-bottom: 25px;
+        }
+
+
+        .role-option {
+
+            position: relative;
+
+            display: block;
+        }
+
+
+        .role-option input {
+
+            position: absolute;
+
+            opacity: 0;
+
+            pointer-events: none;
+        }
+
+
+        .role-button {
+
+            min-height: 70px;
+
+            width: 100%;
+
+            border: 2px solid #dbe8f8;
+
+            background: #f4f8fe;
+
+            border-radius: 16px;
+
+            cursor: pointer;
+
+            display: flex;
+
+            flex-direction: column;
 
             align-items: center;
 
-            gap: 13px;
+            justify-content: center;
 
-            color: #147be5;
+            gap: 5px;
 
-            font-size: 17px;
+            transition: all .2s ease;
 
-            font-weight: 900;
-
-            letter-spacing: .4px;
+            color: #426593;
         }
 
 
-        .login-card-header > span::before,
-        .login-card-header > span::after {
+        .role-button i {
 
-            content: "";
+            font-size: 21px;
 
-            width: 7px;
-            height: 7px;
-
-            border-radius: 50%;
-
-            background: #13bca9;
+            color: #6190c8;
         }
 
 
-        .login-card-header h2 {
+        .role-button span {
 
-            margin: 20px 0 7px;
+            font-size: 12px;
 
-            font-size: 39px;
-
-            font-weight: 900;
-
-            color: #112f67;
+            font-weight: 700;
         }
 
 
-        .login-card-header p {
+        .role-option input:checked
+        + .role-button {
 
-            margin: 0 0 28px;
+            background:
+                linear-gradient(
+                    135deg,
+                    #2587ec,
+                    #11b9ae
+                );
 
-            color: #637699;
+            border-color: transparent;
 
-            font-size: 17px;
+            color: white;
 
-            font-weight: 600;
+            transform: translateY(-2px);
+
+            box-shadow:
+                0 10px 25px rgba(26, 139, 224, .20);
         }
 
 
-        /* ==================================================
-           ERROR
-        ================================================== */
+        .role-option input:checked
+        + .role-button i {
 
-        .login-error {
+            color: white;
+        }
+
+
+        /* =====================================================
+           CAMPOS
+           ===================================================== */
+
+        .field {
+
+            margin-bottom: 23px;
+        }
+
+
+        .field label {
+
+            display: block;
+
+            color: #153a76;
+
+            font-size: 15px;
+
+            font-weight: 700;
+
+            margin-bottom: 11px;
+        }
+
+
+        .input-box {
+
+            width: 100%;
+
+            height: 68px;
+
+            background: #eaf2fd;
+
+            border: 1px solid #d8e5f6;
+
+            border-radius: 14px;
 
             display: flex;
 
             align-items: center;
 
-            gap: 12px;
+            padding: 0 20px;
 
-            padding: 14px 17px;
-
-            margin-bottom: 23px;
-
-            border-radius: 12px;
-
-            background: #fff2f3;
-
-            border: 1px solid #ffd0d5;
-
-            color: #df3948;
-
-            font-size: 14px;
-
-            font-weight: 800;
-
-            position: relative;
-
-            z-index: 3;
+            transition: all .2s ease;
         }
 
 
-        .login-error i {
+        .input-box:focus-within {
 
-            font-size: 18px;
+            border-color: #48a2ee;
 
-            flex-shrink: 0;
+            background: #f1f7ff;
+
+            box-shadow:
+                0 0 0 4px rgba(47, 144, 230, .08);
         }
 
 
-        /* ==================================================
-           CAMPOS
-        ================================================== */
+        .input-box > i:first-child {
 
-        .login-input-group {
-
-            margin-bottom: 21px;
-
-            position: relative;
-
-            z-index: 2;
-        }
-
-
-        .login-input-group label {
-
-            display: block;
-
-            margin-bottom: 9px;
-
-            font-size: 15px;
-
-            font-weight: 900;
-
-            color: #173568;
-        }
-
-
-        .login-input-wrapper {
-
-            position: relative;
-        }
-
-
-        .login-input-wrapper > i {
-
-            position: absolute;
-
-            left: 19px;
-
-            top: 50%;
-
-            transform: translateY(-50%);
-
-            color: #7188ae;
+            width: 30px;
 
             font-size: 21px;
 
-            z-index: 2;
+            color: #6992c5;
         }
 
 
-        .login-input-wrapper input {
+        .input-box input {
 
             width: 100%;
 
-            height: 61px;
-
-            padding:
-                0 52px 0 58px;
-
-            border-radius: 13px;
-
-            border: 1.5px solid #d8e3f1;
-
-            outline: none;
-
-            background: rgba(255,255,255,.86);
-
-            color: #173568;
-
-            font-family: "Nunito", sans-serif;
-
-            font-size: 16px;
-
-            font-weight: 700;
-
-            transition: .25s ease;
-
-            box-shadow:
-                inset 0 2px 5px rgba(30,80,130,.025);
-        }
-
-
-        .login-input-wrapper input::placeholder {
-
-            color: #9aa9c0;
-
-            font-weight: 600;
-        }
-
-
-        .login-input-wrapper input:focus {
-
-            border-color: #36a3ed;
-
-            background: #ffffff;
-
-            box-shadow:
-                0 0 0 4px rgba(46, 145, 236, .10);
-        }
-
-
-        /* ==================================================
-           MOSTRAR CONTRASEÑA
-        ================================================== */
-
-        .password-toggle {
-
-            position: absolute;
-
-            right: 16px;
-
-            top: 50%;
-
-            transform: translateY(-50%);
-
-            width: 35px;
-            height: 35px;
+            height: 100%;
 
             border: none;
 
+            outline: none;
+
             background: transparent;
 
-            color: #7188ae;
+            font-family: 'Poppins', sans-serif;
+
+            font-size: 15px;
+
+            color: #183c70;
+
+            padding-left: 15px;
+        }
+
+
+        .input-box input::placeholder {
+
+            color: #7591b7;
+        }
+
+
+        .password-toggle {
+
+            width: 35px;
 
             cursor: pointer;
 
-            font-size: 19px;
+            color: #6b8db8 !important;
+
+            text-align: center;
         }
 
 
-        .password-toggle:hover {
-
-            color: #1488dc;
-        }
-
-
-        /* ==================================================
+        /* =====================================================
            BOTÓN
-        ================================================== */
+           ===================================================== */
 
         .login-button {
 
             width: 100%;
 
-            height: 61px;
-
-            margin-top: 8px;
+            height: 68px;
 
             border: none;
 
-            border-radius: 14px;
+            border-radius: 15px;
 
             background:
                 linear-gradient(
                     100deg,
-                    #287cf0,
-                    #159fe5 52%,
-                    #11c5ae
+                    #2587ec,
+                    #11bdb0
                 );
 
             color: white;
+
+            font-family: 'Poppins', sans-serif;
+
+            font-size: 17px;
+
+            font-weight: 800;
+
+            cursor: pointer;
 
             display: flex;
 
@@ -974,30 +1212,12 @@ $error = $_GET['error'] ?? '';
 
             justify-content: center;
 
-            gap: 16px;
-
-            font-family: "Nunito", sans-serif;
-
-            font-size: 17px;
-
-            font-weight: 900;
-
-            cursor: pointer;
+            gap: 18px;
 
             box-shadow:
-                0 12px 25px rgba(35, 126, 233, .20);
+                0 12px 25px rgba(24, 145, 223, .22);
 
-            transition:
-                transform .2s ease,
-                box-shadow .2s ease;
-        }
-
-
-        .login-button i {
-
-            font-size: 24px;
-
-            transition: transform .2s ease;
+            transition: all .2s ease;
         }
 
 
@@ -1006,50 +1226,52 @@ $error = $_GET['error'] ?? '';
             transform: translateY(-2px);
 
             box-shadow:
-                0 16px 30px rgba(35, 126, 233, .27);
+                0 16px 30px rgba(24, 145, 223, .28);
         }
 
 
-        .login-button:hover i {
+        .login-button i {
 
-            transform: translateX(5px);
+            font-size: 21px;
         }
 
 
-        .login-button:active {
-
-            transform: translateY(0);
-        }
-
-
-        /* ==================================================
+        /* =====================================================
            SEGURIDAD
-        ================================================== */
+           ===================================================== */
 
-        .login-card-bottom {
-
-            margin-top: 31px;
+        .secure {
 
             display: flex;
 
-            justify-content: center;
-
             align-items: center;
+
+            justify-content: center;
 
             gap: 12px;
 
-            color: #52698f;
+            margin-top: 30px;
+
+            color: #58789f;
 
             font-size: 14px;
 
-            font-weight: 800;
+            font-weight: 600;
+
+            position: relative;
+
+            z-index: 2;
         }
 
 
-        .login-card-bottom i {
+        .secure-icon {
 
-            width: 38px;
-            height: 38px;
+            width: 37px;
+            height: 37px;
+
+            border-radius: 50%;
+
+            background: #f0f7ff;
 
             display: flex;
 
@@ -1057,199 +1279,166 @@ $error = $_GET['error'] ?? '';
 
             justify-content: center;
 
-            border-radius: 50%;
-
-            background: #edf6ff;
-
-            color: #397bc7;
-
-            font-size: 17px;
+            color: #2787e6;
         }
 
 
-        /* ==================================================
+        /* =====================================================
            RESPONSIVE
-        ================================================== */
+           ===================================================== */
 
-        @media (max-width: 1100px) {
+        @media (max-width: 1200px) {
 
-            .login-container {
+            .page {
 
                 grid-template-columns: 1fr;
 
-                max-width: 720px;
+                max-width: 850px;
 
-                gap: 20px;
+                margin: auto;
 
-                padding-top: 30px;
+                padding: 35px 25px;
             }
 
 
-            .login-presentation {
-
-                min-height: auto;
-
-                padding: 20px 10px;
+            .left {
 
                 text-align: center;
 
-                align-items: center;
+                padding-left: 0;
             }
 
 
-            .login-brand {
+            .brand {
 
                 justify-content: center;
-
-                text-align: left;
             }
 
 
-            .login-presentation-content {
-
-                margin-top: 55px;
-            }
-
-
-            .login-presentation h1 {
-
-                font-size: 50px;
-            }
-
-
-            .login-presentation p {
+            .description {
 
                 margin-left: auto;
+
                 margin-right: auto;
             }
 
 
-            .login-benefits {
+            .features {
 
                 justify-content: center;
-            }
-
-
-            .login-footer-left {
-
-                margin-top: 45px;
-            }
-
-        }
-
-
-        @media (max-width: 600px) {
-
-            .login-container {
-
-                width: 100%;
-
-                padding: 20px 14px;
-            }
-
-
-            .login-presentation {
-
-                padding: 10px 5px;
-            }
-
-
-            .login-logo {
-
-                width: 60px;
-                height: 60px;
-            }
-
-
-            .login-brand-name {
-
-                font-size: 21px;
-            }
-
-
-            .login-brand-subtitle {
-
-                font-size: 13px;
-            }
-
-
-            .login-presentation-content {
-
-                margin-top: 35px;
-            }
-
-
-            .login-presentation h1 {
-
-                font-size: 40px;
-
-                letter-spacing: -1px;
-            }
-
-
-            .login-presentation p {
-
-                font-size: 16px;
-            }
-
-
-            .login-benefits {
-
-                gap: 10px;
-            }
-
-
-            .login-benefit {
-
-                width: 100px;
-            }
-
-
-            .login-benefit-icon {
-
-                width: 65px;
-                height: 65px;
-
-                font-size: 25px;
-            }
-
-
-            .login-benefit span {
-
-                font-size: 12px;
             }
 
 
             .login-card {
 
-                padding: 35px 23px 28px;
+                margin: 0 auto;
+            }
+        }
 
-                border-radius: 26px;
+
+        @media (max-width: 650px) {
+
+            .page {
+
+                padding: 20px 14px;
             }
 
 
-            .login-card-icon {
+            .brand-text h2 {
 
-                width: 110px;
-                height: 110px;
+                font-size: 23px;
             }
 
 
-            .login-card-header h2 {
+            .brand-text p {
 
-                font-size: 33px;
+                font-size: 13px;
             }
 
 
-            .login-card-header > span {
+            .brand-logo {
 
-                font-size: 14px;
+                width: 62px;
+
+                height: 62px;
             }
 
 
-            .login-footer-left {
+            .brand-logo i {
 
-                font-size: 12px;
+                font-size: 40px;
+            }
+
+
+            .hero-title {
+
+                font-size: 46px;
+
+                letter-spacing: -1.5px;
+            }
+
+
+            .description {
+
+                font-size: 15px;
+            }
+
+
+            .features {
+
+                gap: 15px;
+            }
+
+
+            .feature {
+
+                width: 105px;
+            }
+
+
+            .login-card {
+
+                padding: 35px 23px;
+
+                min-height: auto;
+
+                border-radius: 28px;
+            }
+
+
+            .login-icon {
+
+                width: 115px;
+
+                height: 115px;
+            }
+
+
+            .login-icon i {
+
+                font-size: 50px;
+            }
+
+
+            .login-title {
+
+                font-size: 35px;
+            }
+
+
+            .roles {
+
+                grid-template-columns: 1fr;
+            }
+
+
+            .role-button {
+
+                min-height: 60px;
+
+                flex-direction: row;
+
+                gap: 10px;
             }
 
         }
@@ -1262,365 +1451,393 @@ $error = $_GET['error'] ?? '';
 <body>
 
 
-<main class="login-container">
+<div class="page">
 
 
-    <!-- ==================================================
-         PRESENTACIÓN
-    ================================================== -->
+    <!-- =====================================================
+         LADO IZQUIERDO
+         ===================================================== -->
 
-    <section class="login-presentation">
-
-
-        <div class="login-brand">
-
-            <img
-                src="../Logo.png"
-                alt="Logo del Sistema"
-                class="login-logo"
-            >
-
-            <div>
-
-                <div class="login-brand-name">
-                    Sistema de Asistencia QR
-                </div>
-
-                <div class="login-brand-subtitle">
-                    Gestión académica inteligente
-                </div>
-
-            </div>
-
-        </div>
+    <section class="left">
 
 
-        <div class="login-presentation-content">
+        <div class="brand">
 
+            <div class="brand-logo">
 
-            <div class="login-badge">
-
-                <span></span>
-
-                SISTEMA DIGITAL DE ASISTENCIA
+                <i class="fa-solid fa-qrcode"></i>
 
             </div>
 
 
-            <h1>
-
-                Gestiona la asistencia
-
-                <span>
-                    de forma simple.
-                </span>
-
-            </h1>
-
-
-            <p>
-
-                Accede a la plataforma para registrar,
-                consultar y administrar la asistencia
-                académica mediante tecnología QR.
-
-            </p>
-
-
-            <div class="login-benefits">
-
-
-                <div class="login-benefit">
-
-                    <div class="login-benefit-icon">
-
-                        <i class="bi bi-qr-code-scan"></i>
-
-                    </div>
-
-                    <span>
-                        Registro mediante
-                        códigos QR
-                    </span>
-
-                </div>
-
-
-                <div class="login-benefit">
-
-                    <div class="login-benefit-icon">
-
-                        <i class="bi bi-bar-chart-line-fill"></i>
-
-                    </div>
-
-                    <span>
-                        Control y
-                        seguimiento
-                    </span>
-
-                </div>
-
-
-                <div class="login-benefit">
-
-                    <div class="login-benefit-icon">
-
-                        <i class="bi bi-shield-lock-fill"></i>
-
-                    </div>
-
-                    <span>
-                        Información
-                        segura
-                    </span>
-
-                </div>
-
-
-            </div>
-
-        </div>
-
-    </section>
-
-
-    <!-- ==================================================
-         LOGIN
-    ================================================== -->
-
-    <section class="login-form-section">
-
-
-        <div class="login-card">
-
-
-            <!-- ICONO -->
-
-            <div class="login-card-icon">
-
-                <svg
-                    viewBox="0 0 100 100"
-                    xmlns="http://www.w3.org/2000/svg"
-                    aria-hidden="true"
-                >
-
-                    <circle
-                        cx="42"
-                        cy="31"
-                        r="13"
-                        class="person-line"
-                    />
-
-
-                    <path
-                        d="
-                            M18 68
-                            C18 52,
-                            28 45,
-                            42 45
-                            C56 45,
-                            66 52,
-                            66 68
-                        "
-                        class="person-line"
-                    />
-
-
-                    <path
-                        d="
-                            M65 43
-                            L81 49
-                            L81 65
-                            C81 75,
-                            74 82,
-                            65 87
-                            C56 82,
-                            49 75,
-                            49 65
-                            L49 49
-                            Z
-                        "
-                        class="shield-line"
-                    />
-
-
-                    <rect
-                        x="59"
-                        y="61"
-                        width="12"
-                        height="12"
-                        rx="2"
-                        class="lock-line"
-                    />
-
-
-                    <path
-                        d="
-                            M62 61
-                            V57
-                            C62 53,
-                            68 53,
-                            68 57
-                            V61
-                        "
-                        class="lock-line"
-                    />
-
-                </svg>
-
-            </div>
-
-
-            <!-- ENCABEZADO -->
-
-            <div class="login-card-header">
-
-                <span>
-                    ACCESO AL SISTEMA
-                </span>
+            <div class="brand-text">
 
                 <h2>
-                    Bienvenido
+                    Sistema de Asistencia QR
                 </h2>
 
                 <p>
-                    Ingresa tus datos para continuar.
+                    Gestión académica inteligente
+                </p>
+
+            </div>
+
+        </div>
+
+
+        <div class="badge">
+
+            <span class="badge-dot"></span>
+
+            SISTEMA DIGITAL DE ASISTENCIA
+
+        </div>
+
+
+        <h1 class="hero-title">
+
+            Gestiona la<br>
+
+            asistencia<br>
+
+            <span class="blue">
+                de forma
+            </span>
+
+            <span class="green">
+                simple.
+            </span>
+
+        </h1>
+
+
+        <p class="description">
+
+            Accede a la plataforma para registrar,
+            consultar y administrar la asistencia
+            académica mediante tecnología QR.
+
+        </p>
+
+
+        <div class="features">
+
+
+            <div class="feature">
+
+                <div class="feature-icon">
+
+                    <i class="fa-solid fa-qrcode"></i>
+
+                </div>
+
+                <p>
+                    Registro mediante<br>
+                    códigos QR
                 </p>
 
             </div>
 
 
-            <!-- ERROR -->
+            <div class="feature">
 
-            <?php if ($error !== ''): ?>
+                <div class="feature-icon">
 
-                <div class="login-error">
-
-                    <i class="bi bi-exclamation-circle-fill"></i>
-
-                    <span>
-
-                        <?= htmlspecialchars(
-                            $error,
-                            ENT_QUOTES,
-                            'UTF-8'
-                        ); ?>
-
-                    </span>
+                    <i class="fa-solid fa-chart-column"></i>
 
                 </div>
 
-            <?php endif; ?>
-
-
-            <!-- FORMULARIO -->
-
-            <form
-                method="POST"
-                action="procesar_login.php"
-                autocomplete="on"
-            >
-
-
-                <!-- USUARIO -->
-
-                <div class="login-input-group">
-
-                    <label for="usuario">
-                        Usuario
-                    </label>
-
-                    <div class="login-input-wrapper">
-
-                        <i class="bi bi-person"></i>
-
-                        <input
-                            type="text"
-                            id="usuario"
-                            name="usuario"
-                            placeholder="Ingresa tu usuario"
-                            autocomplete="username"
-                            maxlength="150"
-                            required
-                        >
-
-                    </div>
-
-                </div>
-
-
-                <!-- CONTRASEÑA -->
-
-                <div class="login-input-group">
-
-                    <label for="password">
-                        Contraseña
-                    </label>
-
-                    <div class="login-input-wrapper">
-
-                        <i class="bi bi-lock"></i>
-
-                        <input
-                            type="password"
-                            id="password"
-                            name="password"
-                            placeholder="Ingresa tu contraseña"
-                            autocomplete="current-password"
-                            required
-                        >
-
-                        <button
-                            type="button"
-                            class="password-toggle"
-                            onclick="mostrarPassword()"
-                            aria-label="Mostrar contraseña"
-                        >
-
-                            <i
-                                class="bi bi-eye"
-                                id="password-icon"
-                            ></i>
-
-                        </button>
-
-                    </div>
-
-                </div>
-
-
-                <!-- BOTÓN -->
-
-                <button
-                    type="submit"
-                    class="login-button"
-                >
-
-                    <span>
-                        Ingresar al sistema
-                    </span>
-
-                    <i class="bi bi-arrow-right"></i>
-
-                </button>
-
-
-            </form>
-
-
-            <!-- SEGURIDAD -->
-
-            <div class="login-card-bottom">
-
-                <i class="bi bi-shield-lock-fill"></i>
-
-                <span>
-                    Acceso protegido y seguro
-                </span>
+                <p>
+                    Control y<br>
+                    seguimiento
+                </p>
 
             </div>
 
+
+            <div class="feature">
+
+                <div class="feature-icon">
+
+                    <i class="fa-solid fa-shield-halved"></i>
+
+                </div>
+
+                <p>
+                    Información<br>
+                    segura
+                </p>
+
+            </div>
+
+
+        </div>
+
+    </section>
+
+
+
+    <!-- =====================================================
+         LOGIN
+         ===================================================== -->
+
+    <section class="login-card">
+
+
+        <div class="login-icon">
+
+            <i class="fa-solid fa-user-shield"></i>
+
+        </div>
+
+
+        <div class="login-title-small">
+
+            ACCESO AL SISTEMA
+
+        </div>
+
+
+        <h2 class="login-title">
+
+            Bienvenido
+
+        </h2>
+
+
+        <p class="login-subtitle">
+
+            Ingresa tus datos para continuar.
+
+        </p>
+
+
+        <?php if (!empty($mensaje)): ?>
+
+            <div class="message <?= htmlspecialchars($tipoMensaje) ?>">
+
+                <?= htmlspecialchars($mensaje) ?>
+
+            </div>
+
+        <?php endif; ?>
+
+
+        <!-- =================================================
+             FORMULARIO
+             ================================================= -->
+
+        <form
+            method="POST"
+            action=""
+            id="loginForm"
+            autocomplete="off"
+        >
+
+
+            <!-- =============================================
+                 TIPO DE USUARIO
+                 ============================================= -->
+
+            <label class="role-label">
+
+                Tipo de usuario
+
+            </label>
+
+
+            <div class="roles">
+
+
+                <!-- ADMINISTRADOR -->
+
+                <label class="role-option">
+
+                    <input
+                        type="radio"
+                        name="rol"
+                        value="admin"
+                        <?= $rolSeleccionado === "admin"
+                            ? "checked"
+                            : "" ?>
+                    >
+
+                    <span class="role-button">
+
+                        <i class="fa-solid fa-crown"></i>
+
+                        <span>
+                            ADMIN
+                        </span>
+
+                    </span>
+
+                </label>
+
+
+
+                <!-- DOCENTE -->
+
+                <label class="role-option">
+
+                    <input
+                        type="radio"
+                        name="rol"
+                        value="docente"
+                        <?= $rolSeleccionado === "docente"
+                            ? "checked"
+                            : "" ?>
+                    >
+
+                    <span class="role-button">
+
+                        <i class="fa-solid fa-chalkboard-user"></i>
+
+                        <span>
+                            DOCENTE
+                        </span>
+
+                    </span>
+
+                </label>
+
+
+
+                <!-- RESTAURANTE -->
+
+                <label class="role-option">
+
+                    <input
+                        type="radio"
+                        name="rol"
+                        value="restaurante"
+                        <?= $rolSeleccionado === "restaurante"
+                            ? "checked"
+                            : "" ?>
+                    >
+
+                    <span class="role-button">
+
+                        <i class="fa-solid fa-utensils"></i>
+
+                        <span>
+                            RESTAURANTE
+                        </span>
+
+                    </span>
+
+                </label>
+
+
+            </div>
+
+
+
+            <!-- =============================================
+                 USUARIO / CORREO
+                 ============================================= -->
+
+            <div class="field">
+
+                <label for="usuario">
+
+                    Correo electrónico
+
+                </label>
+
+
+                <div class="input-box">
+
+                    <i class="fa-regular fa-user"></i>
+
+
+                    <input
+                        type="text"
+                        name="usuario"
+                        id="usuario"
+                        placeholder="usuario@colegio.edu.co"
+                        value="<?= htmlspecialchars($usuarioIngresado) ?>"
+                        required
+                    >
+
+                </div>
+
+            </div>
+
+
+
+            <!-- =============================================
+                 CONTRASEÑA
+                 ============================================= -->
+
+            <div class="field">
+
+                <label for="password">
+
+                    Contraseña
+
+                </label>
+
+
+                <div class="input-box">
+
+                    <i class="fa-solid fa-lock"></i>
+
+
+                    <input
+                        type="password"
+                        name="password"
+                        id="password"
+                        placeholder="••••••••"
+                        required
+                    >
+
+
+                    <i
+                        class="fa-regular fa-eye password-toggle"
+                        id="togglePassword"
+                    ></i>
+
+                </div>
+
+            </div>
+
+
+
+            <!-- =============================================
+                 BOTÓN
+                 ============================================= -->
+
+            <button
+                type="submit"
+                class="login-button"
+            >
+
+                <span>
+                    Ingresar al sistema
+                </span>
+
+                <i class="fa-solid fa-arrow-right"></i>
+
+            </button>
+
+
+        </form>
+
+
+        <!-- =================================================
+             SEGURIDAD
+             ================================================= -->
+
+        <div class="secure">
+
+            <span class="secure-icon">
+
+                <i class="fa-solid fa-shield-halved"></i>
+
+            </span>
+
+            Acceso protegido y seguro
 
         </div>
 
@@ -1628,39 +1845,78 @@ $error = $_GET['error'] ?? '';
     </section>
 
 
-</main>
+</div>
+
 
 
 <script>
 
-function mostrarPassword() {
 
-    const password =
-        document.getElementById("password");
+/* =========================================================
+   MOSTRAR / OCULTAR CONTRASEÑA
+   ========================================================= */
 
-    const icon =
-        document.getElementById("password-icon");
+const togglePassword =
+    document.getElementById("togglePassword");
+
+const password =
+    document.getElementById("password");
 
 
-    if (password.type === "password") {
+togglePassword.addEventListener(
+    "click",
+    function () {
 
-        password.type = "text";
+        if (password.type === "password") {
 
-        icon.classList.remove("bi-eye");
+            password.type = "text";
 
-        icon.classList.add("bi-eye-slash");
+            this.classList.remove("fa-eye");
 
-    } else {
+            this.classList.add("fa-eye-slash");
 
-        password.type = "password";
+        } else {
 
-        icon.classList.remove("bi-eye-slash");
+            password.type = "password";
 
-        icon.classList.add("bi-eye");
+            this.classList.remove("fa-eye-slash");
+
+            this.classList.add("fa-eye");
+
+        }
 
     }
+);
 
-}
+
+/* =========================================================
+   VALIDAR ROL
+   ========================================================= */
+
+document
+    .getElementById("loginForm")
+    .addEventListener(
+        "submit",
+        function (event) {
+
+            const rolSeleccionado =
+                document.querySelector(
+                    'input[name="rol"]:checked'
+                );
+
+
+            if (!rolSeleccionado) {
+
+                event.preventDefault();
+
+                alert(
+                    "Selecciona primero el tipo de usuario."
+                );
+
+            }
+
+        }
+    );
 
 </script>
 

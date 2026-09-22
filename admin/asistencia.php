@@ -1699,15 +1699,16 @@ body{
 .arrival-table th{
 
     padding:
-        7px 10px;
+        10px 12px;
 
     color:#91a8ae;
 
-    font-size:8px;
+    /* CAMBIO: letras más grandes */
+    font-size:12px;
 
     font-weight:950;
 
-    letter-spacing:.8px;
+    letter-spacing:.6px;
 
     text-align:left;
 
@@ -1723,11 +1724,12 @@ body{
 .arrival-table td{
 
     padding:
-        12px 10px;
+        14px 12px;
 
     color:#698a93;
 
-    font-size:9px;
+    /* CAMBIO: letras más grandes */
+    font-size:14px;
 
     font-weight:750;
 
@@ -1809,10 +1811,10 @@ body{
 
     align-items:center;
 
-    gap:4px;
+    gap:5px;
 
     padding:
-        5px 8px;
+        7px 10px;
 
     border-radius:9px;
 
@@ -1821,7 +1823,8 @@ body{
     background:
         rgba(242,143,150,.11);
 
-    font-size:8px;
+    /* CAMBIO: letras del estado más grandes */
+    font-size:11px;
 
     font-weight:950;
 
@@ -2411,7 +2414,6 @@ body{
 
             </div>
 
-
         </div>
 
 
@@ -2707,7 +2709,7 @@ body{
 
                                             <?= htmlspecialchars(
                                                 date(
-                                                    'h:i:s A',
+                                                    'H:i:s',
                                                     strtotime(
                                                         $llegada[
                                                         'hora_llegada'

@@ -7,8 +7,10 @@ session_start();
 ========================================================= */
 
 if (!isset($_SESSION["id_usuario"])) {
+
     header("Location: ../auth/login.php");
     exit();
+
 }
 
 /* =========================================================
@@ -16,8 +18,10 @@ if (!isset($_SESSION["id_usuario"])) {
 ========================================================= */
 
 if ($_SESSION["id_rol"] != 3) {
+
     header("Location: ../index.php");
     exit();
+
 }
 
 /* =========================================================
@@ -268,6 +272,7 @@ if ($stmtGrafica) {
 ?>
 
 <!DOCTYPE html>
+
 <html lang="es">
 
 <head>
@@ -1740,6 +1745,7 @@ body{
 
         </div>
 
+
     </div>
 
     <div class="sidebar-line">
@@ -1987,6 +1993,44 @@ body{
             </p>
 
         </div>
+
+
+    </div>
+
+
+</section>
+
+
+
+<!-- INFORMACIÓN -->
+
+<section class="info-card">
+
+
+    <h3>
+
+        <i class="bi bi-info-circle"></i>
+
+        Información del restaurante
+
+    </h3>
+
+
+    <p>
+
+        El restaurante utiliza el código QR asociado
+        al documento del estudiante para registrar
+        su asistencia.
+
+    </p>
+
+
+    <div class="info-box">
+
+        <i class="bi bi-check-circle-fill"></i>
+
+        Cada estudiante puede registrar su asistencia
+        al restaurante una sola vez por día.
 
     </div>
 

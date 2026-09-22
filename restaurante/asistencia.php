@@ -1261,7 +1261,7 @@ $totalHoy = count($asistenciasHoy);
         </header>
 
         <!-- =================================================
-             ESCÁNER
+           ESCÁNER
         ================================================== -->
 
         <section class="scanner-card">

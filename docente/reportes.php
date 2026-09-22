@@ -24,10 +24,133 @@ date_default_timezone_set('America/Bogota');
 
 
 /* =========================================================
-   DATOS DEL DOCENTE
+   DATOS DEL DOCENTE PARA ACTUALIZAR EXCUSAS
 ========================================================= */
 
-$idDocente = (int) $_SESSION['id_usuario'];
+$idDocente = (int) ($_SESSION['id_usuario'] ?? 0);
+
+
+/* =========================================================
+   ACTUALIZAR EXCUSA
+========================================================= */
+
+if (
+    $_SERVER['REQUEST_METHOD'] === 'POST'
+    && isset($_POST['accion'])
+    && $_POST['accion'] === 'actualizar_excusa'
+) {
+
+    $idAsistencia =
+        (int)($_POST['id_asistencia'] ?? 0);
+
+    $estadoExcusa =
+        $_POST['estado_excusa'] ?? '';
+
+    if (
+        $idAsistencia > 0
+        &&
+        (
+            $estadoExcusa === 'TRAJO'
+            ||
+            $estadoExcusa === 'NO_TRAJO'
+        )
+    ) {
+
+        /*
+           Verificar que el registro pertenece a una sesión
+           del docente antes de modificarlo.
+        */
+        $sqlActualizarExcusa = "
+
+            UPDATE asistencia_clase a
+
+            INNER JOIN sesiones_clase s
+                ON s.id_sesion = a.id_sesion
+
+            SET a.estado_excusa = ?
+
+            WHERE a.id_asistencia = ?
+
+            AND s.id_docente = ?
+
+        ";
+
+
+        $stmtActualizarExcusa =
+            mysqli_prepare(
+                $conexion,
+                $sqlActualizarExcusa
+            );
+
+
+        if ($stmtActualizarExcusa) {
+
+            mysqli_stmt_bind_param(
+                $stmtActualizarExcusa,
+                "sii",
+                $estadoExcusa,
+                $idAsistencia,
+                $idDocente
+            );
+
+
+            $actualizado =
+                mysqli_stmt_execute(
+                    $stmtActualizarExcusa
+                );
+
+            mysqli_stmt_close(
+                $stmtActualizarExcusa
+            );
+
+            if (!$actualizado) {
+
+                die(
+                    'No fue posible actualizar la excusa.'
+                );
+
+            }
+
+        }
+
+    }
+
+
+    /*
+       Regresar a la misma página conservando
+       el curso seleccionado.
+    */
+    $urlRegreso =
+        'reportes.php';
+
+
+    if (
+        isset($_POST['id_curso'])
+        &&
+        (int)$_POST['id_curso'] > 0
+    ) {
+
+        $urlRegreso .=
+            '?id_curso='
+            .
+            (int)$_POST['id_curso'];
+
+    }
+
+
+    header(
+        "Location: " . $urlRegreso
+    );
+
+    exit();
+
+}
+
+
+
+/* =========================================================
+   DATOS DEL DOCENTE
+========================================================= */
 
 $nombreUsuario = $_SESSION['nombre'] ?? 'Docente';
 
@@ -438,12 +561,14 @@ foreach ($registros as $registro) {
 
 
     $excusa =
-        trim(
-            $registro['estado_excusa'] ?? ''
+        strtoupper(
+            trim(
+                $registro['estado_excusa'] ?? ''
+            )
         );
 
 
-    if ($excusa !== '') {
+    if ($excusa === 'TRAJO') {
 
         $totalExcusas++;
 
@@ -1979,6 +2104,157 @@ tbody tr:hover{
 
 
 /* =========================================================
+   BOTONES DE EXCUSA
+========================================================= */
+
+.excuse-actions{
+
+    display:flex;
+
+    align-items:center;
+
+    gap:6px;
+
+    flex-wrap:wrap;
+
+}
+
+
+.excuse-button{
+
+    display:inline-flex;
+
+    align-items:center;
+
+    justify-content:center;
+
+    gap:5px;
+
+    padding:
+        7px 9px;
+
+    border:none;
+
+    border-radius:9px;
+
+    cursor:pointer;
+
+    font-family:inherit;
+
+    font-size:9px;
+
+    font-weight:900;
+
+    transition:.2s;
+
+}
+
+
+.excuse-button:hover{
+
+    transform:
+        translateY(-1px);
+
+}
+
+
+.excuse-button.yes{
+
+    color:#258e6d;
+
+    background:
+        rgba(66,205,161,.11);
+
+}
+
+
+.excuse-button.yes:hover{
+
+    background:
+        rgba(66,205,161,.20);
+
+}
+
+
+.excuse-button.no{
+
+    color:#b85e69;
+
+    background:
+        rgba(242,143,150,.11);
+
+}
+
+
+.excuse-button.no:hover{
+
+    background:
+        rgba(242,143,150,.20);
+
+}
+
+
+.excuse-button.change{
+
+    color:#7569c2;
+
+    background:
+        rgba(133,121,210,.10);
+
+}
+
+
+.excuse-button.change:hover{
+
+    background:
+        rgba(133,121,210,.18);
+
+}
+
+
+.excuse-current{
+
+    display:inline-flex;
+
+    align-items:center;
+
+    gap:5px;
+
+    margin-bottom:5px;
+
+    padding:
+        6px 9px;
+
+    border-radius:9px;
+
+    font-size:9px;
+
+    font-weight:950;
+
+}
+
+
+.excuse-current.trajo{
+
+    color:#258e6d;
+
+    background:
+        rgba(66,205,161,.11);
+
+}
+
+
+.excuse-current.no-trajo{
+
+    color:#b85e69;
+
+    background:
+        rgba(242,143,150,.11);
+
+}
+
+
+/* =========================================================
    VACÍO
 ========================================================= */
 
@@ -2311,7 +2587,7 @@ tbody tr:hover{
                 </div>
 
                 <span>
-                    Mis cursos
+                    Cursos
                 </span>
 
                 <span class="nav-arrow">
@@ -3042,30 +3318,237 @@ tbody tr:hover{
                             <td>
 
 
+                                <?php
+
+                                $excusaActual =
+                                    strtoupper(
+                                        trim(
+                                            $registro['estado_excusa']
+                                            ?? ''
+                                        )
+                                    );
+
+                                ?>
+
+
                                 <?php if (
-                                    $excusa !== ''
+                                    $excusaActual === 'TRAJO'
                                 ): ?>
 
 
-                                    <span class="excuse">
+                                    <div class="excuse-actions">
 
-                                        <i class="bi bi-file-text"></i>
+                                        <span class="excuse-current trajo">
 
-                                        <?= htmlspecialchars(
-                                            $excusa
-                                        ) ?>
+                                            <i class="bi bi-check-circle-fill"></i>
 
-                                    </span>
+                                            Trajo excusa
+
+                                        </span>
+
+
+                                        <form
+                                            method="POST"
+                                            action="reportes.php"
+                                        >
+
+                                            <input
+                                                type="hidden"
+                                                name="accion"
+                                                value="actualizar_excusa"
+                                            >
+
+                                            <input
+                                                type="hidden"
+                                                name="id_asistencia"
+                                                value="<?= (int)$registro['id_asistencia'] ?>"
+                                            >
+
+                                            <input
+                                                type="hidden"
+                                                name="estado_excusa"
+                                                value="NO_TRAJO"
+                                            >
+
+                                            <input
+                                                type="hidden"
+                                                name="id_curso"
+                                                value="<?= (int)$idCursoFiltro ?>"
+                                            >
+
+                                            <button
+                                                type="submit"
+                                                class="excuse-button change"
+                                                title="Cambiar a no trajo excusa"
+                                            >
+
+                                                <i class="bi bi-arrow-repeat"></i>
+
+                                                Cambiar
+
+                                            </button>
+
+                                        </form>
+
+
+                                    </div>
+
+
+                                <?php elseif (
+                                    $excusaActual === 'NO_TRAJO'
+                                ): ?>
+
+
+                                    <div class="excuse-actions">
+
+                                        <span class="excuse-current no-trajo">
+
+                                            <i class="bi bi-x-circle-fill"></i>
+
+                                            No trajo excusa
+
+                                        </span>
+
+
+                                        <form
+                                            method="POST"
+                                            action="reportes.php"
+                                        >
+
+                                            <input
+                                                type="hidden"
+                                                name="accion"
+                                                value="actualizar_excusa"
+                                            >
+
+                                            <input
+                                                type="hidden"
+                                                name="id_asistencia"
+                                                value="<?= (int)$registro['id_asistencia'] ?>"
+                                            >
+
+                                            <input
+                                                type="hidden"
+                                                name="estado_excusa"
+                                                value="TRAJO"
+                                            >
+
+                                            <input
+                                                type="hidden"
+                                                name="id_curso"
+                                                value="<?= (int)$idCursoFiltro ?>"
+                                            >
+
+                                            <button
+                                                type="submit"
+                                                class="excuse-button change"
+                                                title="Cambiar a trajo excusa"
+                                            >
+
+                                                <i class="bi bi-arrow-repeat"></i>
+
+                                                Cambiar
+
+                                            </button>
+
+                                        </form>
+
+
+                                    </div>
 
 
                                 <?php else: ?>
 
 
-                                    <span class="no-excuse">
+                                    <div class="excuse-actions">
 
-                                        —
+                                        <form
+                                            method="POST"
+                                            action="reportes.php"
+                                        >
 
-                                    </span>
+                                            <input
+                                                type="hidden"
+                                                name="accion"
+                                                value="actualizar_excusa"
+                                            >
+
+                                            <input
+                                                type="hidden"
+                                                name="id_asistencia"
+                                                value="<?= (int)$registro['id_asistencia'] ?>"
+                                            >
+
+                                            <input
+                                                type="hidden"
+                                                name="estado_excusa"
+                                                value="TRAJO"
+                                            >
+
+                                            <input
+                                                type="hidden"
+                                                name="id_curso"
+                                                value="<?= (int)$idCursoFiltro ?>"
+                                            >
+
+                                            <button
+                                                type="submit"
+                                                class="excuse-button yes"
+                                            >
+
+                                                <i class="bi bi-check-circle"></i>
+
+                                                Trajo
+
+                                            </button>
+
+                                        </form>
+
+
+                                        <form
+                                            method="POST"
+                                            action="reportes.php"
+                                        >
+
+                                            <input
+                                                type="hidden"
+                                                name="accion"
+                                                value="actualizar_excusa"
+                                            >
+
+                                            <input
+                                                type="hidden"
+                                                name="id_asistencia"
+                                                value="<?= (int)$registro['id_asistencia'] ?>"
+                                            >
+
+                                            <input
+                                                type="hidden"
+                                                name="estado_excusa"
+                                                value="NO_TRAJO"
+                                            >
+
+                                            <input
+                                                type="hidden"
+                                                name="id_curso"
+                                                value="<?= (int)$idCursoFiltro ?>"
+                                            >
+
+                                            <button
+                                                type="submit"
+                                                class="excuse-button no"
+                                            >
+
+                                                <i class="bi bi-x-circle"></i>
+
+                                                No trajo
+
+                                            </button>
+
+                                        </form>
+
+
+                                    </div>
 
 
                                 <?php endif; ?>

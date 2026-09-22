@@ -234,6 +234,11 @@ if ($resultadoNoRegistrados) {
    ESTADÍSTICA ÚLTIMOS 7 DÍAS
 ========================================================= */
 
+/* =========================================================
+   ESTADÍSTICA ÚLTIMOS 5 DÍAS HÁBILES
+   SOLO LUNES A VIERNES
+========================================================= */
+
 $grafica = [];
 
 $dias = [
@@ -241,20 +246,22 @@ $dias = [
     'Tue' => 'Mar',
     'Wed' => 'Mié',
     'Thu' => 'Jue',
-    'Fri' => 'Vie',
-    'Sat' => 'Sáb',
-    'Sun' => 'Dom'
+    'Fri' => 'Vie'
 ];
 
-for (
-    $i = 6;
-    $i >= 0;
-    $i--
-) {
+/*
+   Buscamos hacia atrás desde hoy
+   hasta encontrar 5 días hábiles.
+*/
+
+$contadorDiasHabiles = 0;
+$desplazamiento = 0;
+
+while ($contadorDiasHabiles < 5) {
 
     $fechaGrafica = date(
         'Y-m-d',
-        strtotime("-$i days")
+        strtotime("-$desplazamiento days")
     );
 
     $diaNombre = date(
@@ -262,14 +269,30 @@ for (
         strtotime($fechaGrafica)
     );
 
-    $grafica[] = [
-        'fecha' => $fechaGrafica,
-        'dia' =>
-            $dias[$diaNombre]
-            ?? $diaNombre,
-        'total' => 0
-    ];
+    /*
+       Solo lunes a viernes.
+       Sábado y domingo se ignoran.
+    */
+
+    if (isset($dias[$diaNombre])) {
+
+        $grafica[] = [
+            'fecha' => $fechaGrafica,
+            'dia' => $dias[$diaNombre],
+            'total' => 0
+        ];
+
+        $contadorDiasHabiles++;
+    }
+
+    $desplazamiento++;
 }
+
+/*
+   Ordenamos los días de lunes a viernes.
+*/
+
+$grafica = array_reverse($grafica);
 
 /* =========================================================
    CONSULTAR ACTIVIDAD DEL RESTAURANTE
@@ -3508,7 +3531,7 @@ tbody tr:hover{
                 </h3>
 
                 <p>
-                    Registros registrados durante los últimos 7 días
+                    Registros registrados durante los últimos 5 días
                 </p>
 
             </div>

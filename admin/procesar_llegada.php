@@ -1,4 +1,3 @@
-
 <?php
 
 error_reporting(E_ALL);
@@ -307,13 +306,12 @@ if ($stmtDirector) {
 
 /* =========================================================
    FECHA Y HORA
+   HORA REAL DE COLOMBIA
 ========================================================= */
 
-$fecha =
-    date('Y-m-d');
+$fecha = date('Y-m-d');
 
-$hora =
-    date('H:i:s');
+$hora = date('H:i:s');
 
 
 /* =========================================================
@@ -444,6 +442,13 @@ if (!$stmtInsertar) {
     exit();
 }
 
+
+/*
+ * IMPORTANTE:
+ * Se envía directamente la hora generada por PHP
+ * en formato 24 horas: HH:MM:SS
+ */
+
 mysqli_stmt_bind_param(
     $stmtInsertar,
     "iss",
@@ -452,14 +457,11 @@ mysqli_stmt_bind_param(
     $hora
 );
 
+
 $guardado =
     mysqli_stmt_execute(
         $stmtInsertar
     );
-
-mysqli_stmt_close(
-    $stmtInsertar
-);
 
 
 /* =========================================================
@@ -468,14 +470,29 @@ mysqli_stmt_close(
 
 if (!$guardado) {
 
+    $errorMysql =
+        mysqli_stmt_error(
+            $stmtInsertar
+        );
+
+    mysqli_stmt_close(
+        $stmtInsertar
+    );
+
     echo json_encode([
         "ok" => false,
         "mensaje" =>
-            "No fue posible registrar la llegada tarde."
+            "No fue posible registrar la llegada tarde.",
+        "detalle" =>
+            $errorMysql
     ]);
 
     exit();
 }
+
+mysqli_stmt_close(
+    $stmtInsertar
+);
 
 
 /* =========================================================
