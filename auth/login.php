@@ -17,11 +17,6 @@ require_once(__DIR__ . "/../config/conexion.php");
 
 /* =========================================================
    CONFIGURACIÓN DE ROLES
-   =========================================================
-
-   1 = ADMINISTRADOR
-   2 = DOCENTE
-   3 = RESTAURANTE
    ========================================================= */
 
 $ROLES = [
@@ -45,39 +40,49 @@ $ROLES = [
 
 
 /* =========================================================
+   FUNCIÓN PARA REDIRIGIR AL DASHBOARD
+   ========================================================= */
+
+function redirigirDashboard($idRol)
+{
+    switch ((int)$idRol) {
+
+        case 1:
+
+            header("Location: ../admin/dashboard.php");
+            exit;
+
+        case 2:
+
+            header("Location: ../docente/dashboard.php");
+            exit;
+
+        case 3:
+
+            header("Location: ../restaurante/dashboard.php");
+            exit;
+
+        default:
+
+            session_unset();
+            session_destroy();
+
+            header("Location: login.php");
+            exit;
+    }
+}
+
+
+/* =========================================================
    SI YA EXISTE UNA SESIÓN
    ========================================================= */
 
-if (isset($_SESSION["id_usuario"]) && isset($_SESSION["id_rol"])) {
+if (
+    isset($_SESSION["id_usuario"]) &&
+    isset($_SESSION["id_rol"])
+) {
 
-    $rolActual = (int) $_SESSION["id_rol"];
-
-
-    /* ADMINISTRADOR */
-
-    if ($rolActual === 1) {
-
-        header("Location: ../admin/dashboard.php");
-        exit;
-    }
-
-
-    /* DOCENTE */
-
-    if ($rolActual === 2) {
-
-        header("Location: ../docente/asistencia.php");
-        exit;
-    }
-
-
-    /* RESTAURANTE */
-
-    if ($rolActual === 3) {
-
-        header("Location: ../restaurante/index.php");
-        exit;
-    }
+    redirigirDashboard($_SESSION["id_rol"]);
 }
 
 
@@ -90,7 +95,11 @@ $tipoMensaje = "";
 
 $rolSeleccionado = $_POST["rol"] ?? "";
 
-$usuarioIngresado = $_POST["usuario"] ?? "";
+$numeroIdentificacion =
+    trim($_POST["numero_identificacion"] ?? "");
+
+$nombreCompleto =
+    trim($_POST["nombre_completo"] ?? "");
 
 
 /* =========================================================
@@ -99,7 +108,8 @@ $usuarioIngresado = $_POST["usuario"] ?? "";
 
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
-    $passwordIngresada = $_POST["password"] ?? "";
+    $passwordIngresada =
+        $_POST["password"] ?? "";
 
 
     /* =====================================================
@@ -108,238 +118,503 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
     if (!isset($ROLES[$rolSeleccionado])) {
 
-        $mensaje = "Selecciona el tipo de usuario.";
+        $mensaje =
+            "Selecciona el tipo de usuario.";
 
         $tipoMensaje = "error";
 
-    } else {
+    }
+
+    /* =====================================================
+       VALIDAR CAMPOS VACÍOS
+       ===================================================== */
+
+    elseif (
+        $numeroIdentificacion === "" ||
+        $nombreCompleto === "" ||
+        $passwordIngresada === ""
+    ) {
+
+        $mensaje =
+            "Por favor completa todos los campos.";
+
+        $tipoMensaje = "error";
+
+    }
+
+    /* =====================================================
+       VALIDAR EXACTAMENTE 10 DÍGITOS
+       ===================================================== */
+
+    elseif (
+        !preg_match(
+            '/^[0-9]{10}$/',
+            $numeroIdentificacion
+        )
+    ) {
+
+        $mensaje =
+            "El número de identificación debe tener exactamente 10 dígitos.";
+
+        $tipoMensaje = "error";
+
+    }
+
+    else {
 
         $rol = $ROLES[$rolSeleccionado];
 
 
         /* =================================================
-           VALIDAR CAMPOS
+           BUSCAR USUARIO ACTIVO DEL ROL
            ================================================= */
 
-        if (
-            trim($usuarioIngresado) === "" ||
-            $passwordIngresada === ""
-        ) {
+        $sql = "
 
-            $mensaje = "Por favor completa todos los campos.";
+            SELECT
+                id_usuario,
+                nombre,
+                apellido,
+                usuario,
+                password,
+                id_rol,
+                estado
+
+            FROM usuarios
+
+            WHERE id_rol = ?
+            AND estado = 'ACTIVO'
+
+            ORDER BY id_usuario ASC
+
+            LIMIT 1
+
+        ";
+
+
+        $stmt = $conexion->prepare($sql);
+
+
+        if (!$stmt) {
+
+            $mensaje =
+                "No fue posible preparar la consulta.";
 
             $tipoMensaje = "error";
 
-        } else {
+        }
+
+        else {
+
+            $idRol =
+                (int)$rol["id"];
+
+
+            $stmt->bind_param(
+                "i",
+                $idRol
+            );
+
+
+            $stmt->execute();
+
+
+            $resultado =
+                $stmt->get_result();
 
 
             /* =============================================
-               BUSCAR USUARIO
+               COMPROBAR USUARIO
                ============================================= */
 
-            $sql = "
-                SELECT
-                    id_usuario,
-                    nombre,
-                    apellido,
-                    usuario,
-                    password,
-                    id_rol,
-                    estado
-                FROM usuarios
-                WHERE usuario = ?
-                LIMIT 1
-            ";
-
-
-            $stmt = $conexion->prepare($sql);
-
-
-            if (!$stmt) {
+            if ($resultado->num_rows === 0) {
 
                 $mensaje =
-                    "No fue posible preparar la consulta.";
+                    "No existe un usuario activo para el tipo de usuario seleccionado.";
 
                 $tipoMensaje = "error";
 
-            } else {
+            }
 
+            else {
 
-                $stmt->bind_param(
-                    "s",
-                    $usuarioIngresado
-                );
-
-
-                $stmt->execute();
-
-
-                $resultado = $stmt->get_result();
+                $usuario =
+                    $resultado->fetch_assoc();
 
 
                 /* =========================================
-                   COMPROBAR SI EXISTE
+                   COMPROBAR ESTADO
                    ========================================= */
 
-                if ($resultado->num_rows === 0) {
+                if (
+                    isset($usuario["estado"]) &&
+                    $usuario["estado"] !== "ACTIVO"
+                ) {
 
                     $mensaje =
-                        "El correo o usuario no está registrado.";
+                        "Este usuario se encuentra inactivo.";
 
                     $tipoMensaje = "error";
 
-                } else {
+                }
 
-                    $usuario = $resultado->fetch_assoc();
+                /* =========================================
+                   COMPROBAR ROL
+                   ========================================= */
+
+                elseif (
+                    (int)$usuario["id_rol"] !==
+                    (int)$rol["id"]
+                ) {
+
+                    $mensaje =
+                        "El usuario no pertenece al tipo de usuario seleccionado.";
+
+                    $tipoMensaje = "error";
+
+                }
+
+                /* =========================================
+                   COMPROBAR CONTRASEÑA
+                   ========================================= */
+
+                elseif (
+                    !password_verify(
+                        $passwordIngresada,
+                        $usuario["password"]
+                    )
+                ) {
+
+                    $mensaje =
+                        "La contraseña es incorrecta.";
+
+                    $tipoMensaje = "error";
+
+                }
+
+                else {
 
 
                     /* =====================================
-                       COMPROBAR ESTADO
+                       BUSCAR IDENTIFICACIÓN
                        ===================================== */
 
-                    if (
-                        isset($usuario["estado"]) &&
-                        $usuario["estado"] !== "ACTIVO"
-                    ) {
+                    $sqlAcceso = "
+
+                        SELECT
+                            id_acceso,
+                            numero_identificacion,
+                            nombre_completo,
+                            id_rol
+
+                        FROM usuarios_acceso
+
+                        WHERE numero_identificacion = ?
+
+                        LIMIT 1
+
+                    ";
+
+
+                    $stmtAcceso =
+                        $conexion->prepare(
+                            $sqlAcceso
+                        );
+
+
+                    if (!$stmtAcceso) {
 
                         $mensaje =
-                            "Este usuario se encuentra inactivo.";
+                            "No fue posible consultar los datos de acceso.";
 
                         $tipoMensaje = "error";
 
-                    } else {
+                    }
+
+                    else {
+
+                        $stmtAcceso->bind_param(
+                            "s",
+                            $numeroIdentificacion
+                        );
+
+
+                        $stmtAcceso->execute();
+
+
+                        $resultadoAcceso =
+                            $stmtAcceso->get_result();
+
+
+                        $acceso =
+                            $resultadoAcceso->fetch_assoc();
+
+
+                        $stmtAcceso->close();
 
 
                         /* =================================
-                           COMPROBAR ROL
+                           SI YA EXISTE LA IDENTIFICACIÓN
                            ================================= */
 
-                        if (
-                            (int)$usuario["id_rol"] !==
-                            (int)$rol["id"]
-                        ) {
-
-                            $mensaje =
-                                "El usuario no pertenece al tipo de usuario seleccionado.";
-
-                            $tipoMensaje = "error";
-
-                        } else {
+                        if ($acceso) {
 
 
                             /* =============================
-                               COMPROBAR CONTRASEÑA
-                               =============================
-
-                               La contraseña está almacenada
-                               en la columna password.
-
-                               password_verify() comprueba
-                               la contraseña escrita contra
-                               el hash guardado.
+                               COMPROBAR ROL
                                ============================= */
 
                             if (
-                                !password_verify(
-                                    $passwordIngresada,
-                                    $usuario["password"]
-                                )
+                                (int)$acceso["id_rol"] !==
+                                (int)$rol["id"]
                             ) {
 
                                 $mensaje =
-                                    "La contraseña es incorrecta.";
+                                    "El número de identificación no pertenece al tipo de usuario seleccionado.";
 
                                 $tipoMensaje = "error";
 
-                            } else {
+                            }
+
+                            else {
 
 
                                 /* =========================
-                                   LOGIN CORRECTO
+                                   CREAR SESIÓN
                                    ========================= */
 
-                                session_regenerate_id(true);
+                                session_regenerate_id(
+                                    true
+                                );
 
 
-                                $_SESSION["id_usuario"] =
-                                    (int)$usuario["id_usuario"];
+                                $_SESSION[
+                                    "id_usuario"
+                                ] =
+                                    (int)$usuario[
+                                        "id_usuario"
+                                    ];
 
 
-                                $_SESSION["id_rol"] =
-                                    (int)$usuario["id_rol"];
+                                $_SESSION[
+                                    "id_rol"
+                                ] =
+                                    (int)$usuario[
+                                        "id_rol"
+                                    ];
 
 
-                                $_SESSION["usuario"] =
-                                    $usuario["usuario"];
+                                $_SESSION[
+                                    "numero_identificacion"
+                                ] =
+                                    $acceso[
+                                        "numero_identificacion"
+                                    ];
 
 
-                                $_SESSION["nombre"] =
-                                    $usuario["nombre"];
+                                $_SESSION[
+                                    "nombre_completo"
+                                ] =
+                                    $acceso[
+                                        "nombre_completo"
+                                    ];
 
 
-                                $_SESSION["apellido"] =
-                                    $usuario["apellido"];
+                                /* =================================
+                                   COMPATIBILIDAD CON EL PROYECTO
+                                   ================================= */
+
+                                $_SESSION[
+                                    "usuario"
+                                ] =
+                                    $acceso[
+                                        "numero_identificacion"
+                                    ];
+
+
+                                $_SESSION[
+                                    "nombre"
+                                ] =
+                                    $acceso[
+                                        "nombre_completo"
+                                    ];
+
+
+                                $_SESSION[
+                                    "apellido"
+                                ] = "";
+
+
+                                $_SESSION[
+                                    "rol"
+                                ] =
+                                    $rol["nombre"];
 
 
                                 /* =========================
-                                   REDIRECCIÓN
+                                   IR AL DASHBOARD
                                    ========================= */
 
+                                redirigirDashboard(
+                                    $usuario["id_rol"]
+                                );
+                            }
 
-                                /* ADMINISTRADOR */
+                        }
 
-                                if (
-                                    (int)$usuario["id_rol"] === 1
-                                ) {
+                        /* =================================
+                           IDENTIFICACIÓN NUEVA
+                           ================================= */
 
-                                    header(
-                                        "Location: ../admin/dashboard.php"
-                                    );
-
-                                    exit;
-                                }
-
-
-                                /* DOCENTE */
-
-                                if (
-                                    (int)$usuario["id_rol"] === 2
-                                ) {
-
-                                    header(
-                                        "Location: ../docente/asistencia.php"
-                                    );
-
-                                    exit;
-                                }
+                        else {
 
 
-                                /* RESTAURANTE */
+                            /* =============================
+                               INSERTAR USUARIO DE ACCESO
+                               ============================= */
 
-                                if (
-                                    (int)$usuario["id_rol"] === 3
-                                ) {
+                            $sqlInsertar = "
 
-                                    header(
-                                        "Location: ../restaurante/index.php"
-                                    );
+                                INSERT INTO usuarios_acceso
+                                (
+                                    numero_identificacion,
+                                    nombre_completo,
+                                    id_rol
+                                )
 
-                                    exit;
-                                }
+                                VALUES
+                                (
+                                    ?,
+                                    ?,
+                                    ?
+                                )
 
+                            ";
+
+
+                            $stmtInsertar =
+                                $conexion->prepare(
+                                    $sqlInsertar
+                                );
+
+
+                            if (!$stmtInsertar) {
 
                                 $mensaje =
-                                    "El usuario no tiene un módulo asignado.";
+                                    "No fue posible preparar el registro del usuario.";
 
                                 $tipoMensaje = "error";
+
+                            }
+
+                            else {
+
+                                $stmtInsertar->bind_param(
+                                    "ssi",
+                                    $numeroIdentificacion,
+                                    $nombreCompleto,
+                                    $idRol
+                                );
+
+
+                                if (
+                                    !$stmtInsertar->execute()
+                                ) {
+
+                                    $mensaje =
+                                        "No fue posible guardar los datos del usuario.";
+
+                                    $tipoMensaje =
+                                        "error";
+
+                                }
+
+                                else {
+
+
+                                    /* =====================
+                                       CREAR SESIÓN
+                                       ===================== */
+
+                                    session_regenerate_id(
+                                        true
+                                    );
+
+
+                                    $_SESSION[
+                                        "id_usuario"
+                                    ] =
+                                        (int)$usuario[
+                                            "id_usuario"
+                                        ];
+
+
+                                    $_SESSION[
+                                        "id_rol"
+                                    ] =
+                                        (int)$usuario[
+                                            "id_rol"
+                                        ];
+
+
+                                    $_SESSION[
+                                        "numero_identificacion"
+                                    ] =
+                                        $numeroIdentificacion;
+
+
+                                    $_SESSION[
+                                        "nombre_completo"
+                                    ] =
+                                        $nombreCompleto;
+
+
+                                    /* =====================
+                                       COMPATIBILIDAD
+                                       ===================== */
+
+                                    $_SESSION[
+                                        "usuario"
+                                    ] =
+                                        $numeroIdentificacion;
+
+
+                                    $_SESSION[
+                                        "nombre"
+                                    ] =
+                                        $nombreCompleto;
+
+
+                                    $_SESSION[
+                                        "apellido"
+                                    ] = "";
+
+
+                                    $_SESSION[
+                                        "rol"
+                                    ] =
+                                        $rol["nombre"];
+
+
+                                    /* =====================
+                                       IR AL DASHBOARD
+                                       ===================== */
+
+                                    redirigirDashboard(
+                                        $usuario["id_rol"]
+                                    );
+                                }
+
+
+                                $stmtInsertar->close();
                             }
                         }
                     }
                 }
-
-
-                $stmt->close();
             }
+
+
+            $stmt->close();
         }
     }
 }
@@ -376,7 +651,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
     <link
         rel="preconnect"
-        href="https://fonts.gstatic.com"
+        href="https://fonts.googleapis.com"
         crossorigin
     >
 
@@ -1734,14 +2009,54 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
 
             <!-- =============================================
-                 USUARIO / CORREO
+                 NÚMERO DE IDENTIFICACIÓN
                  ============================================= -->
 
             <div class="field">
 
-                <label for="usuario">
+                <label for="numero_identificacion">
 
-                    Correo electrónico
+                    Número de identificación
+
+                </label>
+
+
+                <div class="input-box">
+
+                    <i class="fa-regular fa-id-card"></i>
+
+
+                    <input
+                        type="text"
+                        name="numero_identificacion"
+                        id="numero_identificacion"
+                        placeholder="Número de identificación"
+                        value="<?= htmlspecialchars(
+                            $numeroIdentificacion
+                        ) ?>"
+                        autocomplete="off"
+                        inputmode="numeric"
+                        minlength="10"
+                        maxlength="10"
+                        pattern="[0-9]{10}"
+                        required
+                    >
+
+                </div>
+
+            </div>
+
+
+
+            <!-- =============================================
+                 NOMBRE COMPLETO
+                 ============================================= -->
+
+            <div class="field">
+
+                <label for="nombre_completo">
+
+                    Nombre completo
 
                 </label>
 
@@ -1753,10 +2068,13 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
                     <input
                         type="text"
-                        name="usuario"
-                        id="usuario"
-                        placeholder="usuario@colegio.edu.co"
-                        value="<?= htmlspecialchars($usuarioIngresado) ?>"
+                        name="nombre_completo"
+                        id="nombre_completo"
+                        placeholder="Nombre y apellido"
+                        value="<?= htmlspecialchars(
+                            $nombreCompleto
+                        ) ?>"
+                        autocomplete="name"
                         required
                     >
 
@@ -1890,7 +2208,40 @@ togglePassword.addEventListener(
 
 
 /* =========================================================
-   VALIDAR ROL
+   SOLO PERMITIR NÚMEROS EN EL DOCUMENTO
+   ========================================================= */
+
+const numeroIdentificacion =
+    document.getElementById(
+        "numero_identificacion"
+    );
+
+
+numeroIdentificacion.addEventListener(
+    "input",
+    function () {
+
+        this.value =
+            this.value.replace(
+                /[^0-9]/g,
+                ""
+            );
+
+        if (this.value.length > 10) {
+
+            this.value =
+                this.value.substring(
+                    0,
+                    10
+                );
+        }
+
+    }
+);
+
+
+/* =========================================================
+   VALIDAR FORMULARIO
    ========================================================= */
 
 document
@@ -1898,6 +2249,10 @@ document
     .addEventListener(
         "submit",
         function (event) {
+
+            /* =============================================
+               VALIDAR ROL
+               ============================================= */
 
             const rolSeleccionado =
                 document.querySelector(
@@ -1913,6 +2268,29 @@ document
                     "Selecciona primero el tipo de usuario."
                 );
 
+                return;
+            }
+
+
+            /* =============================================
+               VALIDAR DOCUMENTO
+               ============================================= */
+
+            const documento =
+                numeroIdentificacion.value.trim();
+
+
+            if (!/^[0-9]{10}$/.test(documento)) {
+
+                event.preventDefault();
+
+                alert(
+                    "El número de identificación debe tener exactamente 10 dígitos."
+                );
+
+                numeroIdentificacion.focus();
+
+                return;
             }
 
         }
